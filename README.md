@@ -4,7 +4,7 @@
 
 LLMDroid is a novel testing framework designed to enhance existing automated mobile GUI testing tools by leveraging LLMs more efficiently.
 
-We applied LLMDroid to three popular open-source Android automated testing tools: Droidbot, Humanoid (based on Droidbot), and Fastbot.
+We applied LLMDroid to three popular open-source Android automated testing tools: Droidbot, Humanoid (based on Droidbot), and Fastbot2.
 
 ## File Structure
 
@@ -70,4 +70,114 @@ Impr.：Improvement
 
 ACC: Average Code Coverage, AAC: Average Activity Coverage
 
-### 
+
+
+## Experimental Environment
+
+Here is the experimental environment we have tested.
+
+### Operating System
+
+- Ubuntu 20.04
+- Also tested on Windows 10/11
+
+### Python
+
+- LLMDroid-Droidbot and LLMDroid-Humanoid is compatible with **Python >= 3.9**
+
+### Android Environment
+
+- Command Line Tool Used: ADB, AAPT, AAPT2
+
+
+
+## Usage
+
+First, you need to prepare a `config.json` file before you test an app.
+
+```json
+{
+  "AppName": "Fing",
+  "Description": "This app is a networking toolset app that can scan devices on the network, assess network status, and analyze network security. It also provides many useful utilities such as ping, port scanning, and speed test.",
+  "ApiKey": "",
+  "TotalMethod": 62491,
+  "Tag": "FING_LLM_LOG"
+}
+```
+
+- **AppName**: The app you want to test.
+- **Description**: A brief introduction to the app, including its main features and purposes. This helps the LLM better understand the task and improve the testing effectiveness.
+- **ApiKey**: The API Key used to invoke the LLM.
+- **TotalMethod**: The total number of methods in the app after instrumentation. For apps in the Dataset, this can be found in the table within `ExperimentalDataset`. For other apps, it can be obtained through the AndroLog tool after instrumentation is completed.
+- **Tag**: The log tag specified during the app’s instrumentation, used for real-time code coverage statistics. For apps in the Dataset, this can be found in the table within `ExperimentalDataset`. For other apps, it can be specified before using the AndroLog tool for instrumentation.
+
+### LLMDroid-Droidbot
+
+- Install required modules
+
+```shell
+pip install openai androguard networkx Pillow
+```
+
+- Make sure the `config.json` file is under the root path of LLMDroid-Droidbot.
+
+- Enter the `LLMDroid-Droidbot` directory and run the following comand:
+
+```shell
+python start.py -d <AVD_SERIAL> -a <APK_FILE> -o <result_dir> -timeout 3600 -interval 3 -count 100000 -keep_app -keep_env -policy dfs_greedy -grant_perm
+```
+
+(Parameters is same as Droidbot)	
+
+
+
+### LLMDroid-Humanoid
+
+- Install required modules
+
+```shell
+pip install openai androguard networkx Pillow
+```
+
+- Make sure the `config.json` file is under the root path of LLMDroid-Humanoid.
+- Deploy and start the Humanoid agent. (For more details, see [Humanoid](https://github.com/the-themis-benchmarks/Humanoid))
+
+- Enter the `LLMDroid-Humanoid` directory and run the following comand:
+
+```shell
+python start.py -d <AVD_SERIAL> -a <APK_FILE> -o <result_dir> -timeout 3600 -interval 3 -count 100000 -keep_app -keep_env -policy dfs_greedy -grant_perm -humanoid 192.168.50.133:50405
+```
+
+(Parameters is same as Humanoid)	
+
+The only difference from LLMDroid-Droidbot is the addition of the parameter `-humanoid`, which indicates the IP address and the listening port of the humanoid agent. 
+
+
+
+### LLMDroid-Fastbot
+
+If you are simply running the LLMDroid-Fastbot tool, the steps are quite straightforward. 
+
+- Push artifacts into your device.
+
+```shell
+adb push .monkeyq.jar /sdcard/monkeyq.jar
+adb push fastbot-thirdpart.jar /sdcard/fastbot-thirdpart.jar
+adb push libs/* /data/local/tmp/
+adb push framework.jar /sdcard/framework.jar
+```
+
+- Run LLMDroid-Fastbot with following command:
+
+```shell
+adb shell CLASSPATH=/sdcard/monkeyq.jar:/sdcard/framework.jar:/sdcard/fastbot-thirdpart.jar exec app_process /system/bin com.android.commands.monkey.Monkey -p $app_package_name --agent reuseq --use-code-coverage true --tag <TAG> --total-method <Total Method> --running-minutes 60 --throttle 3000 --output-directory <mobile_output_dir> -v -v --bugreport
+```
+
+- Special Parameters: (Other parameters are consistent with Fastbot2, see [here](https://github.com/bytedance/Fastbot_Android) for more details)
+    - --use-code-coverage true: Set to activate real-time code coverage monitoring
+    - --tag: The log tag specified during the app’s instrumentation.
+    - --total-method: The total number of methods in the app after instrumentation.
+
+
+
+However, if you wish to modify the code and compile it, you will need to install additional dependencies. For detailed steps, please refer to the README file under LLMDroid-Fastbot.
