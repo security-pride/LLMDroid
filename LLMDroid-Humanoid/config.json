@@ -1,0 +1,7 @@
+{
+  "AppName": "Fing",
+  "Description": "This app is a networking toolset app that can scan devices on the network, assess network status, and analyze network security. It also provides many useful utilities such as ping, port scanning, and speed test.",
+  "ApiKey": "",
+  "TotalMethod": 62491,
+  "Tag": "FING_SUPER_LOG"
+}
