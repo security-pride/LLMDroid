@@ -127,7 +127,7 @@ pip install openai androguard networkx Pillow
 python start.py -d <AVD_SERIAL> -a <APK_FILE> -o <result_dir> -timeout 3600 -interval 3 -count 100000 -keep_app -keep_env -policy dfs_greedy -grant_perm
 ```
 
-(Parameters is same as Droidbot)	
+(Parameters are same as Droidbot)	
 
 
 
@@ -148,7 +148,7 @@ pip install openai androguard networkx Pillow
 python start.py -d <AVD_SERIAL> -a <APK_FILE> -o <result_dir> -timeout 3600 -interval 3 -count 100000 -keep_app -keep_env -policy dfs_greedy -grant_perm -humanoid 192.168.50.133:50405
 ```
 
-(Parameters is same as Humanoid)	
+(Parameters are same as Humanoid)	
 
 The only difference from LLMDroid-Droidbot is the addition of the parameter `-humanoid`, which indicates the IP address and the listening port of the humanoid agent. 
 
@@ -161,6 +161,7 @@ If you are simply running the LLMDroid-Fastbot tool, the steps are quite straigh
 - Push artifacts into your device.
 
 ```shell
+adb push config.json /sdcard/config.json
 adb push .monkeyq.jar /sdcard/monkeyq.jar
 adb push fastbot-thirdpart.jar /sdcard/fastbot-thirdpart.jar
 adb push libs/* /data/local/tmp/
