@@ -78,6 +78,8 @@ repositories {
 dependencies {
     compileOnly files('libs/framework.jar')
     implementation 'com.google.code.gson:gson:2.8.9'
+    implementation 'org.jacoco:org.jacoco.core:0.8.8'
+    implementation 'org.json:json:20240303'
 }
 
 gradle.projectsEvaluated {
@@ -86,6 +88,11 @@ gradle.projectsEvaluated {
             Set<File> fileSet = options.bootstrapClasspath.getFiles()
             List<File> newFileList = new ArrayList<File>()
             newFileList.add(new File("libs/framework.jar"))
+            /*newFileList.add(new File("libs/org.jacoco.core-0.8.8.jar"))
+            newFileList.add(new File("libs/asm-9.2.jar"))
+            newFileList.add(new File("libs/asm-analysis-9.2.jar"))
+            newFileList.add(new File("libs/asm-commons-9.2.jar"))
+            newFileList.add(new File("libs/asm-tree-9.2.jar"))*/
             newFileList.addAll(fileSet)
             options.bootstrapClasspath = files(newFileList.toArray())
         }
@@ -100,6 +107,15 @@ task makeJar(type: Jar) {
     def srcPath = 'build/intermediates/aar_main_jar/release/'
     def fileMonkey = file(srcPath+"classes.jar")
     from zipTree(fileMonkey)
+
+    /*from files(
+            'libs/org.jacoco.core-0.8.8.jar',
+            'libs/asm-9.2.jar',
+            'libs/asm-analysis-9.2.jar',
+            'libs/asm-commons-9.2.jar',
+            'libs/asm-tree-9.2.jar'
+    )*/
+
     archiveBaseName = 'monkey'
     destinationDirectory = file("build/libs/")
 }

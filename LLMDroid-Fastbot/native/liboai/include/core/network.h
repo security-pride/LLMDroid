@@ -15,11 +15,12 @@
 
 #include <optional>
 #include <future>
+#include <utility>
 #include "netimpl.h"
 
 namespace liboai {
 	class Network {			
-		public:
+    public:
 			Network() noexcept = default;
 			Network(Network&&) = delete;
 			Network(const Network&) = delete;
@@ -91,8 +92,10 @@ namespace liboai {
 					}
 				);
 			}
-			
-		protected:
+
+        void set_base_url(std::string base_url) { openai_root_ = std::move(base_url); }
+
+    protected:
 			enum class Method : uint8_t {
 				HTTP_GET,     // GET
 				HTTP_POST,    // POST
@@ -150,7 +153,7 @@ namespace liboai {
 				return false;
 			}
 			
-			const std::string openai_root_ = "https://oneapi.xty.app/v1";
+			std::string openai_root_ = "https://oneapi.xty.app/v1";
 			//"https://api.openai.com/v1"
 			//"https://oneapi.xty.app/v1"
 			const std::string azure_root_ = ".openai.azure.com/openai";

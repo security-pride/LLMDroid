@@ -63,7 +63,7 @@ namespace fastbotx {
 
         std::string getDescriptionInfo();
 
-        std::string toHTML();
+        std::string toHTML(std::vector<ElementPtr> elementToMerge = {}, bool noChild = true, int actionId = -1);
 
         void setFunction(std::string function) { _function =  function; }
 

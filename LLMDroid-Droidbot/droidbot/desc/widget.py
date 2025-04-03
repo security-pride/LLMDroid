@@ -167,33 +167,34 @@ class Widget:
         else:
             return ScrollType.ALL  # ALL ?
 
-    def to_html(self, widget_to_merge: 'list[Widget]' = None, has_child: bool = False) -> str:
+    def to_html(self, widget_to_merge: 'list[Widget]' = None, has_child: bool = False, id: int = -1) -> str:
         if widget_to_merge is None:
             widget_to_merge = []
 
         html_class = self.get_html_class()
         result: str = html_class.start_tag + ' '
 
-        result += f'id="{self.__id}" '
+        if html_class != HtmlClass.P:
+            result += f'id={self.__id if id == -1 else id} '
 
         # class
         class_name = self.get_class()
         if class_name:
-            result += f'"class={class_name}" '
+            result += f'class="{class_name}" '
 
         res_id = self.get_resource_id()
         if res_id:
-            result += f'"resource-id={res_id}" '
+            result += f'resource-id="{res_id}" '
         else:
             for widget in widget_to_merge:
                 res_id = widget.get_resource_id()
                 if res_id:
-                    result += f'"resource-id={res_id}" '
+                    result += f'resource-id="{res_id}" '
                     break
 
         content_desc = self.get_content_desc()
         if content_desc:
-            result += f'"content-desc={content_desc}" '
+            result += f'content-desc="{content_desc}" '
 
         # add special attribute
         if html_class == HtmlClass.SCROLLER:

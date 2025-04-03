@@ -568,8 +568,8 @@ namespace fastbotx {
             // recursive
             std::vector<std::vector<Step>> possible_paths = traceback(is_used, parent, source, precursor.node, layer + 1);
             if (layer <= 1) {
-                callJavaLogger(MAIN_THREAD, "[Layer%d] %d: traceback(%d, %d) complete",
-                               layer, dest, source, precursor.node);
+//                callJavaLogger(MAIN_THREAD, "[Layer%d] %d: traceback(%d, %d) complete",
+//                               layer, dest, source, precursor.node);
             }
             for (auto current_path: possible_paths) {
                 // pre_node --action--> current node (dest)

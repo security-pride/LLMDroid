@@ -256,9 +256,10 @@ namespace fastbotx {
         return info;
     }
 
-    std::string Widget::toHTML()
+
+    std::string Widget::toHTML(std::vector<ElementPtr> elementToMerge, bool noChild, int actionId)
     {
-        return _element->toHTML();
+        return _element->toHTML(elementToMerge, noChild, actionId);
     }
 
 }

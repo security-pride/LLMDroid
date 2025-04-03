@@ -170,7 +170,7 @@ namespace liboai {
 			nlohmann::json _conversation;
 	};
 
-	class ChatCompletion final : private Network {
+	class ChatCompletion final : public Network {
 		public:
 			ChatCompletion() = default;
 			~ChatCompletion() = default;

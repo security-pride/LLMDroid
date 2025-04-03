@@ -21,7 +21,7 @@ namespace fastbotx {
     std::mutex loggerMutex;
 
     jclass codeCoverageClass;
-    jmethodID getGrowthRateMethod;
+    jmethodID getCoverageMethod;
 
     const char* htmlClass[] = {
         #define HTML_ITEM(a, b, c) b,

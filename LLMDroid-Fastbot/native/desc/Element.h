@@ -25,6 +25,8 @@ namespace fastbotx {
 
     class Widget;
     typedef std::shared_ptr<Widget> WidgetPtr;
+    class Element;
+    typedef std::shared_ptr<Element> ElementPtr;
 
     class Xpath {
     public:
@@ -157,8 +159,8 @@ namespace fastbotx {
         void addAction(ActionInState action);
 
         HTML_CLASS getHtmlClass();
-        
-        std::string toHTML();
+
+        std::string toHTML(const std::vector<ElementPtr>& elementToMerge, bool noChild, int actionId = -1);
 
         std::string getHtmlSpecialAttribute(HTML_CLASS html_class);
 
@@ -212,8 +214,6 @@ namespace fastbotx {
         // a construct helper
         static bool _allClickableFalse;
     };
-
-    typedef std::shared_ptr<Element> ElementPtr;
 
 
 }

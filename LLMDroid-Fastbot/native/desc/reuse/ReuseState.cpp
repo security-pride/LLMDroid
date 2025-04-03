@@ -280,21 +280,20 @@ namespace fastbotx {
         return nullptr;
     }
 
-    std::string ReuseState::diffWidgets(ReuseStatePtr target)
+    std::vector<WidgetPtr> ReuseState::diffWidgets(ReuseStatePtr target)
     {
-        std::stringstream ss;
+        // use myHash
+        std::vector<WidgetPtr> ret;
         for (WidgetPtr widget: _widgets)
         {
             auto found = std::find_if(target->_widgets.begin(), target->_widgets.end(), [widget](WidgetPtr root_w){
-                return widget->hash() == root_w->hash();
+                return widget->getMyHashcode() == root_w->getMyHashcode();
             });
-            if (found == target->_widgets.end())
-            {
-                // tohtml
-                ss << widget->toHTML();
+            if (found == target->_widgets.end()) {
+                ret.push_back(widget);
             }
         }
-        return ss.str();
+        return ret;
     }
 
     ActivityStateActionPtr ReuseState::findActionByWidget(uintptr_t widgetHash, ActionType actionType)
@@ -383,19 +382,6 @@ namespace fastbotx {
             ret->setWhichWidget(total - 1);
             return ret;
         }
-        ////Find the number of execution times of this action before the action is executed.
-        ////Maybe the state to which the action belongs has been executed multiple times after executing the action, but it cannot be obtained, only -1
-        //int preVisitedCount = action->getVisitedCount() -1;
-        //if (preVisitedCount == 0) {
-        //callJavaLogger(MAIN_THREAD, "[action:%s] has only been executed once, directly return one in _widgets");
-        //return ret;
-        //}
-        ////If preVisitedCount is greater than 0, it means that the action has been executed multiple times
-        ////Find in _mergedWidgets
-        //int index = (preVisitedCount % total) -1;      
-        //ret->setTarget(this->_mergedWidgets.at(h)[index]);
-        //callJavaLogger(MAIN_THREAD, "resolve a merged widget %d/%d for action %s", index, total, ret->toDescription().c_str());
-        //return ret;
     }
 
     int ReuseState::findActionByElementId(int elementId, int actionType)
@@ -404,7 +390,7 @@ namespace fastbotx {
         ElementPtr element = _stateStructure.findElementById(elementId);
         if (!element) {
             callJavaLogger(CHILD_THREAD, "can't find id:%d in State%d's elements", elementId, _id);
-            exit(0);
+            return -1;
         }
 
         // get widget
@@ -535,6 +521,17 @@ namespace fastbotx {
         return ret;
     }
 
+    std::vector<ActivityStateActionPtr> ReuseState::findActionsByWidget(WidgetPtr widget) {
+        std::vector<ActivityStateActionPtr> ret;
+        for (auto it: _actions)
+        {
+            if ( it->getTarget() && it->getTarget()->hash() == widget->hash()) {
+                ret.push_back(it);
+                break;
+            }
+        }       
+        return ret;
+    }
 
 } // namespace fastbot
 

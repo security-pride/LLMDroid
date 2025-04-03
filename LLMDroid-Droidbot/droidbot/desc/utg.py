@@ -432,49 +432,65 @@ class UTG(object):
                 return cluster
         return None
 
-    def get_paths(self, target_cluster_id) -> list[Path]:
-        self.logger.info(f"Try to find path from Cluster{self.current_cluster.get_id()} to Cluster{target_cluster_id}")
-        # find cluster by id
-        target_cluster: Optional['StateCluster'] = self.find_cluster_by_id(target_cluster_id)
-        if target_cluster is None:
-            self.logger.warning(f"Can't find Cluster{target_cluster_id}")
-            return []
-
-        # first try to find paths to root state
-        self.logger.info(f"First try to find path from Current State{self.last_state.get_id()} to Root State{target_cluster.get_root_state().get_id()}")
-        paths = self.generate_paths(self.last_state, target_cluster.get_root_state())
-        if paths:
+    def get_paths(self, target_state_id: int) -> list[Path]:
+        # self.logger.info(f"Try to find path from Cluster{self.current_cluster.get_id()} to Cluster{target_cluster_id}")
+        # # find cluster by id
+        # target_cluster: Optional['StateCluster'] = self.find_cluster_by_id(target_cluster_id)
+        # if target_cluster is None:
+        #     self.logger.warning(f"Can't find Cluster{target_cluster_id}")
+        #     return []
+        self.logger.info(f"Try to find path from Current State{self.last_state.get_id()} to State{target_state_id}")
+        target_state = self.find_state_by_id(target_state_id)
+        if target_state:
+            paths = self.generate_paths(self.last_state, target_state)
             self.logger.info(f"Found {len(paths)} paths!")
             return paths
         else:
-            self.logger.info(
-                f"No path from Current State{self.last_state.get_id()} to Root State{target_cluster.get_root_state().get_id()}")
-            # try to find path to other states in cluster
-            for state in target_cluster.get_states():
-                if state == target_cluster.get_root_state():
-                    continue
-                self.logger.info(f"Try to find path from Current State{self.last_state.get_id()} to other State{state.get_id()}")
-                paths = self.generate_paths(self.last_state, state)
-                if paths:
-                    self.logger.info(f"Found {len(paths)} paths!")
-                    return paths
-                else:
-                    self.logger.info(
-                        f"No path from Current State{self.last_state.get_id()} to State{state.get_id()}")
-
-        self.logger.warning("No path found!!!")
-        return []
+            self.logger.warning("No path found!!!")
+            return []
+        # first try to find paths to root state
+        # self.logger.info(f"First try to find path from Current State{self.last_state.get_id()} to Root State{target_cluster.get_root_state().get_id()}")
+        # paths = self.generate_paths(self.last_state, target_cluster.get_root_state())
+        # if paths:
+        #     self.logger.info(f"Found {len(paths)} paths!")
+        #     return paths
+        # else:
+        #     self.logger.info(
+        #         f"No path from Current State{self.last_state.get_id()} to Root State{target_cluster.get_root_state().get_id()}")
+        #     # try to find path to other states in cluster
+        #     for state in target_cluster.get_states():
+        #         if state == target_cluster.get_root_state():
+        #             continue
+        #         self.logger.info(f"Try to find path from Current State{self.last_state.get_id()} to other State{state.get_id()}")
+        #         paths = self.generate_paths(self.last_state, state)
+        #         if paths:
+        #             self.logger.info(f"Found {len(paths)} paths!")
+        #             return paths
+        #         else:
+        #             self.logger.info(
+        #                 f"No path from Current State{self.last_state.get_id()} to State{state.get_id()}")
+        #
+        # self.logger.warning("No path found!!!")
+        # return []
 
     def generate_paths(self, source_state, dest_state: DeviceState) -> list[Path]:
+        paths = []
+
         raw_paths = nx.all_simple_paths(self.G, source=self.first_state.state_str,
                                         target=dest_state.state_str, cutoff=10)
-        paths = []
+        raw_shortest_path = nx.shortest_path(G=self.G, source=self.first_state.state_str, target=dest_state.state_str)
+
+        shortest_path = self.convert_path(raw_shortest_path)
+        shortest_length = shortest_path.length
+        paths.append(shortest_path)
+
         # 1. If there is no path, raw paths are empty
         # 2. If source == dest, which means dest == first_state: Raw paths contain only one element, which is a list containing only the first state
         for i, raw_path in enumerate(raw_paths):
             path = self.convert_path(raw_path)
-            self.print_path(path=path, id_= i)
-            paths.append(path)
+            if path.length > shortest_length:
+                self.print_path(path=path, id_=i)
+                paths.append(path)
             if i >= 100:
                 self.logger.warning("Too many possible paths, break")
                 break

@@ -111,7 +111,7 @@ namespace fastbotx {
             }
         }
         // root element
-        this->_stateDescription.append(generateElementInfo(this->_rootElement, elementToMerge, false, actionId));
+        this->_stateDescription.append(this->_rootElement->toHTML(elementToMerge, false, -1));
         //this->_stateDescription.append(generateActionList(this->_rootElement));
         this->tabCount++;
         // child element
@@ -169,7 +169,7 @@ namespace fastbotx {
         bool noChild = elementNotMerge.empty();
         // Write the text part of the element
         count++;
-        this->_stateDescription.append(generateElementInfo(target, elementToMerge, noChild, actionId));
+        this->_stateDescription.append(target->toHTML(elementToMerge, noChild, -1));
         // Write the executable action for this element
         // this->_stateDescription.append(generateActionList(target));
         // recursion
@@ -183,89 +183,7 @@ namespace fastbotx {
             addTab();
             this->_stateDescription.append(htmlEndTag[target->getHtmlClass()]).append("\n");
         }        
-    };
-
-    std::string StateStructure::generateElementInfo(const ElementPtr target, std::vector<ElementPtr>& elementToMerge, bool noChild, int& actionId)
-    {
-        std::stringstream infoStr;
-
-        HTML_CLASS html_class = target->getHtmlClass();
-
-        infoStr <<  "<" << htmlClass[html_class] << " ";
-
-        if (html_class != HTML_CLASS::P) {
-            infoStr << "id=" << target->getId() << " ";
-            // actionId++;
-        }
-        
-        // Get the view type based on class name
-        std::string className = target->getClassnameTrunc();
-        if (!className.empty()) {
-            infoStr << "class=\"" << className << "\" ";
-        }
-        else {
-            std::string childClassName;
-            for (const auto& child : elementToMerge) {
-                childClassName = child->getClassnameTrunc();
-                if (!childClassName.empty()) {
-                    infoStr << "class=\"" << childClassName << "\" ";
-                    break;
-                }
-            }
-        }
-        
-        // resource-id
-        std::string resource_id = target->getResourceIDTrunc();
-        if (!resource_id.empty()) {
-            infoStr << "resource-id=\"" << resource_id << "\" ";
-        }
-        else {
-            std::string childResourceID;
-            for (const auto& child : elementToMerge) {
-                childResourceID = child->getResourceIDTrunc();
-                if (!childResourceID.empty()) {
-                    infoStr << "resource-id=\"" << childResourceID << "\" ";
-                    break;
-                }
-            }
-        }
-
-        // content-desc(label)
-        std::string description = target->getContentDesc();
-        if (!description.empty()){
-            infoStr << "content-desc=\"" << description << "\" ";
-        }
-
-        // Add special attributes
-        infoStr << target->getHtmlSpecialAttribute(html_class);
-
-        infoStr << ">";
-        
-        // text
-        std::string text = target->getText();
-        bool fatherEmpty = text.empty();
-        if (!fatherEmpty){
-            infoStr << text;
-        }
-        bool firstFlag = true;
-        for (const auto& child : elementToMerge) {
-            std::string childText = child->getText();
-            if (!childText.empty()) {
-                if (firstFlag && fatherEmpty) {
-                    infoStr << childText;
-                    firstFlag = false;
-                }
-                else {
-                    infoStr << " <br> " << childText;
-                }
-            }
-        }
-
-        if (noChild) { infoStr << htmlEndTag[html_class]; }
-        infoStr << "\n";
-
-        return infoStr.str();
-    };
+    }
 
     std::string StateStructure::generateActionList(const ElementPtr target)
     {

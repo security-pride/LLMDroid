@@ -24,6 +24,10 @@ namespace fastbotx {
     class Model; // forward declaration
     typedef std::shared_ptr<Model> ModelPtr;
 
+    enum class Mode {
+        EXPLORE, GUIDANCE, NAVIGATE, TEST_FUNCTION
+    };
+
     class AbstractAgent : public GraphListener {
     public:
 
@@ -81,32 +85,28 @@ namespace fastbotx {
          * Maintain a queue to record each MergedState of the test and the actions performed in the MergedState,
          * After the time is up, take out the information in this stage and construct the payload
          * 
-         * @param mergedState 
+         * @param mergedState
+         * @deprecated
          */
         void autoGraphOverview(MergedStatePtr& mergedState);
 
+        void switchMode();
+        
         void checkShouldWait();
 
-        /**
-         * call from main thread
-        */
-        void guideMode(bool failed);
+        void prepareForNavigation();
 
-        void askForGuiding(bool failed);
+        void onNavigationFailed();
 
-        void guideCheck(ReuseStatePtr state, bool isNew);
+        void onNavigationOver(bool success);
+
+        void prepareBackToExplore();
+
+        int guideCheck();
 
         void debugMergedStates();
 
-        /**
-         * ask gpt to decide next action
-         * @return whether this function is finished testing
-         */
-        bool functionTest(bool firstTime);
-
-        void functionTestStop();
-
-        void guideModeStop(bool success);
+        void prepareTestFunction();
 
         void resetFuture();
 
@@ -126,8 +126,12 @@ namespace fastbotx {
 
         GraphPtr _graph;
         MergedStateGraphPtr _mergedStateGraph; //= std::make_shared<MergedStateGraph>();
+        
         PromiseIntPtr _promiseInt = std::make_shared<std::promise<int>>();
-        std::future<int> _futureInt = _promiseInt->get_future();
+        FutureInt _futureInt = _promiseInt->get_future();
+        PromiseActionPtr _promiseAction = std::make_shared<std::promise<ActivityStateActionPtr>>();
+        FutureAction _futureAction = _promiseAction->get_future();
+
         GPTAgent _gptAgent;
         
         std::vector<Path> _paths;
@@ -136,9 +140,11 @@ namespace fastbotx {
         int _successGuideTime = 0;
         int _guideTime = 0; // After entering navigation mode for a single time, the number of inquiries to the large model is not the number of local navigation attempts.
         int _guideTarget = 0;
+        Mode _currentMode = Mode::EXPLORE;
         bool _guideMode = false;
         bool _functionTestMode = false;
         ActivityStateActionPtr _actionByGPT = nullptr;
+        int _executedSteps = 0;
 
         const float _maxSimilarity = 0.6;
         float _currentSimilarityCheck = 0.6;
@@ -152,7 +158,7 @@ namespace fastbotx {
 
         // control guide by time
         double _startTime;
-        const double _runTime = 420000.0f; // 150s
+        const double _runTime = 240000.0f; // 150s
         double _nextStageTime;
         bool _shouldWait;
 

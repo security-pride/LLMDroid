@@ -512,8 +512,8 @@ class Memory:
 
 
 class MemoryGuidedPolicy(UtgBasedInputPolicy):
-    def __init__(self, device, app, random_input):
-        super(MemoryGuidedPolicy, self).__init__(device, app, random_input)
+    def __init__(self, device, app, random_input, code_coverage):
+        super(MemoryGuidedPolicy, self).__init__(device, app, random_input, code_coverage)
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.memory = Memory(utg=self.utg, app=self.app)

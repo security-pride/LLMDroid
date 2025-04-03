@@ -38,7 +38,7 @@ class DeviceState(object):
         self.__generate_view_strs()
 
         # init widget from view
-        self.__widgets = []
+        self.__widgets: list[Widget] = []
         self.__merged_widgets = {}
         root = self.__init_widgets()
         self.__root_widget = views[root]['widget']
@@ -57,7 +57,6 @@ class DeviceState(object):
         self.__id = -1
         self.__cluster: StateCluster = None
         self.__lock = threading.Lock()
-
 
     @property
     def activity_short_name(self):
@@ -214,7 +213,7 @@ class DeviceState(object):
             import shutil
             shutil.copyfile(self.screenshot_path, dest_screenshot_path)
             os.remove(self.screenshot_path)
-            # self.screenshot_path = dest_screenshot_path
+            self.screenshot_path = dest_screenshot_path
             # save json file
             dest_state_json_path = os.path.join(output_dir, f"state_{self.__id}.json")
             self.logger.debug(f"sava state to {dest_state_json_path}")
@@ -896,3 +895,27 @@ class DeviceState(object):
                 return event
         self.logger.warning(f"State{self.__id}: No qualified event matched by widget{widget_id} and {act_type}")
         return None
+
+    def find_events_by_widget(self, widget: 'Widget') -> list['UIEvent']:
+        """
+        find all relevant events by widget
+        """
+        ret = []
+        for event in self.get_possible_input():
+            if isinstance(event, UIEvent) and event.get_target() == widget:
+                ret.append(event)
+        return ret
+
+    def diff_widgets(self, target: 'DeviceState') -> list['Widget']:
+        # return widget with different hash
+        # ignore Layout
+        if target == self:
+            return []
+        res: list['Widget'] = []
+        for widget in self.__widgets:
+            # find_if
+            condition = lambda x, y: x.get_hash() == y.get_hash()
+            found: Optional[Widget] = next((item for item in target.__widgets if condition(x=widget, y=item)), None)
+            if not found and widget.get_class().lower().find("layout") == -1:
+                res.append(widget)
+        return res

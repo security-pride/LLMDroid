@@ -3,13 +3,13 @@
 cmake_minimum_required(VERSION 3.10)
 project(fastbot_native)
 
-set(nlohmann_json_DIR "${HOME}/vcpkg/installed/arm64-android/share/nlohmann_json")
-# ${HOME}/vcpkg/installed/arm64-android/share/nlohmann_json
-# ${HOME}/vcpkg/buildtrees/nlohmann-json/x64-linux-rel
-#set(CURL_DIR "${HOME}/vcpkg/buildtrees/curl/arm64-android-rel/generated")
-# set(CURL_LIBRARY "${HOME}/vcpkg/installed/arm64-android/lib/libcurl.a")
-# set(CURL_INCLUDE_DIR "${HOME}/vcpkg/installed/arm64-android/include")
-# set(OPENSSL_LIBRARY "${HOME}/vcpkg/installed/arm64-android/lib/libssl.a")
+set(nlohmann_json_DIR "$ENV{HOME}/vcpkg/installed/arm64-android/share/nlohmann_json")
+# $ENV{HOME}/vcpkg/installed/arm64-android/share/nlohmann_json
+# $ENV{HOME}/vcpkg/buildtrees/nlohmann-json/x64-linux-rel
+#set(CURL_DIR "$ENV{HOME}/vcpkg/buildtrees/curl/arm64-android-rel/generated")
+# set(CURL_LIBRARY "$ENV{HOME}/vcpkg/installed/arm64-android/lib/libcurl.a")
+# set(CURL_INCLUDE_DIR "$ENV{HOME}/vcpkg/installed/arm64-android/include")
+# set(OPENSSL_LIBRARY "$ENV{HOME}/vcpkg/installed/arm64-android/lib/libssl.a")
 # set(OPENSSL_INCLUDE_DIR "${HOME}/vcpkg/installed/arm64-android/incldue")
 
 find_package(nlohmann_json CONFIG REQUIRED)

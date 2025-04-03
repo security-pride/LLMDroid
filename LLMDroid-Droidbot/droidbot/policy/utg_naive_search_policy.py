@@ -8,8 +8,8 @@ class UtgNaiveSearchPolicy(UtgBasedInputPolicy):
     depth-first strategy to explore UFG (old)
     """
 
-    def __init__(self, device, app, random_input, search_method):
-        super(UtgNaiveSearchPolicy, self).__init__(device, app, random_input)
+    def __init__(self, device, app, random_input, search_method, code_coverage):
+        super(UtgNaiveSearchPolicy, self).__init__(device, app, random_input, code_coverage)
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.explored_views = set()

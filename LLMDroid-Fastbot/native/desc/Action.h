@@ -80,7 +80,7 @@ namespace fastbotx {
 
         static const int DefaultValue;
 
-        virtual std::string toDescription();
+        virtual std::string toDescription(const std::string& html = "");
 
         bool hasInput() { return !_inputText.empty(); }
 
@@ -166,7 +166,7 @@ class ActivityStateAction : public Action, public std::enable_shared_from_this<A
         int getWhichWidget() { return _whichWidget; }
 
         // custom
-        std::string toDescription() override;
+        std::string toDescription(const std::string& html = "") override;
         std::string getWidgetInfo();
         std::string getWidgetClass();
 

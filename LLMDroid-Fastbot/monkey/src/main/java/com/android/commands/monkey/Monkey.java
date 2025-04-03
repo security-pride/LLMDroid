@@ -63,12 +63,14 @@ import com.bytedance.fastbot.AiClient;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Writer;
+import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -77,6 +79,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
+import java.util.Date;
+import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import static com.android.commands.monkey.utils.Config.LogcatLineNums;
 import static com.android.commands.monkey.utils.Config.allowStartActivityEscapeAny;
@@ -446,10 +451,8 @@ public class Monkey {
      */
     private String mMainQuickAppActivity = null;
 
-    private boolean mUseCodeCoverage = false;
+    private String mMonitorMetric = "time";
     private CodeCoverage mCodeCoverage = null;
-    private String mLogIdentifier = "MY_SUPER_LOG";
-    private Long mTotalMethod = 50000L;
 
 
     /**
@@ -677,9 +680,6 @@ public class Monkey {
             return -1;
         }
 
-        // begin code coverage monitor
-        initCodeCoverage();
-
         // Load package blacklist or whitelist (if specified).
         if (!loadPackageLists()) {
             return -1;
@@ -740,6 +740,10 @@ public class Monkey {
             return -5;
         }
 
+        // begin code coverage monitor
+        if (!initCodeCoverage()) {
+            return -1;
+        }
 
         mRandom = new Random(mSeed);
         String name = mMainApps.get(0).getPackageName();
@@ -798,7 +802,8 @@ public class Monkey {
             ((MonkeySourceApeNative) mEventSource).setAttribute(mMainApps.get(0).getPackageName(), appVersionCode, mMainIntentAction, mMainIntentData, mMainQuickAppActivity);
             if (mUseApeNativeReuse) {
                 Logger.println("// init with reuse agent");
-                ((MonkeySourceApeNative) mEventSource).initReuseAgent(mUseCodeCoverage);
+                boolean useCodeCoverage = (mMonitorMetric.equalsIgnoreCase("androlog") || mMonitorMetric.equalsIgnoreCase("jacoco")) ? true : false;
+                ((MonkeySourceApeNative) mEventSource).initReuseAgent(useCodeCoverage);
             }
         } else {
             // random monkey by default
@@ -929,10 +934,67 @@ public class Monkey {
         }
     }
 
-    private void initCodeCoverage() {
-        mCodeCoverage = new CodeCoverage(mTotalMethod.intValue(), mLogIdentifier);
-        mCodeCoverage.startLogcatListener();
-        System.out.println("[CodeCoverage] Logcat Listener started");
+    private boolean initCodeCoverage() {
+        if (mMonitorMetric.equalsIgnoreCase("androlog")) {
+            try (BufferedReader reader = new BufferedReader(new FileReader("/sdcard/faruzan/config.json"))) {
+                // 读取整个文件内容为字符串
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                // 使用 org.json.JSONObject 解析 JSON 字符串
+                JSONObject config = new JSONObject(sb.toString());
+                int totalMethod = config.optInt("TotalMethod", -1);
+                String logIdentifier = config.optString("Tag", "");
+                if (totalMethod == -1 || logIdentifier.isEmpty()) {
+                    throw new Exception("Must specify Tag and TotalMethod in config.json when using androlog!");
+                }
+                mCodeCoverage = new CodeCoverage(totalMethod, logIdentifier);
+            } catch (Exception e) {
+                Logger.println(e.getMessage());
+                return false;
+            }
+            Logger.println("[AndroLog] Monitor code coverage using AndroLog");
+            return true;
+        }
+        else if (mMonitorMetric.equalsIgnoreCase("jacoco")) {
+            Logger.println("[Jacoco] start initializing jacoco");
+            try (BufferedReader reader = new BufferedReader(new FileReader("/sdcard/faruzan/config.json"))) {
+                // 读取整个文件内容为字符串
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+
+                // 使用 org.json.JSONObject 解析 JSON 字符串
+                JSONObject config = new JSONObject(sb.toString());
+                String ecFilepath = config.optString("EcFilePath", "");
+                String classFilepath = config.optString("ClassFilePath", "");
+
+                if (ecFilepath.isEmpty() || classFilepath.isEmpty()) {
+                    throw new Exception("Must specify EcFilePath and ClassFilePath in config.json when using jacoco!");
+                }
+
+                SimpleDateFormat dateFormat = (SimpleDateFormat) DateFormat.getDateTimeInstance();
+                dateFormat.applyPattern("yyMMdd_HHmmss");
+                String formattedTime = dateFormat.format(new Date());
+                mCodeCoverage = new CodeCoverage(mOutputDirectory,
+                                                    mMainApps.get(0).getPackageName() + "_" + formattedTime + ".ec",
+                                                    ecFilepath, classFilepath);
+
+            } catch (Exception e) {
+                Logger.println(e.getMessage());
+                return false;
+            }
+            Logger.println("[Jacoco] Monitor code coverage using jacoco");
+            return true;
+        }
+        else {
+            Logger.println("Using time instead of code coverage");
+            return true;
+        }       
     }
 
     /**
@@ -1003,17 +1065,13 @@ public class Monkey {
                         break;
                     case "--use-code-coverage":
                         String res = nextOptionData();
-                        if ("true".equalsIgnoreCase(res)) {
-                            mUseCodeCoverage = true;
+                        if ("androlog".equalsIgnoreCase(res)) {
+                            mMonitorMetric = "androlog";
+                        }
+                        else if ("jacoco".equalsIgnoreCase(res)) {
+                            mMonitorMetric = "jacoco";
                         }
                         break;
-                    case "--tag":
-                        mLogIdentifier = nextOptionData();
-                        break;
-                    case "--total-method":
-                        mTotalMethod = nextOptionLong("total method of intrumented apk");
-                        break;
-
                     case "--replay-log":
                         String logFile = nextOptionData();
                         Config.set("max.replayLog", logFile);

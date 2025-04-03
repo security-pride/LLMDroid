@@ -4,16 +4,15 @@ import random
 import time
 from abc import abstractmethod
 from typing import TYPE_CHECKING
+from . import utils
+from .global_log import get_logger
+from .intent import Intent
+from .desc.action_type import ActionType
 
 if TYPE_CHECKING:
     from .desc.device_state import DeviceState
-
-from . import utils
-from .intent import Intent
-from .desc.action_type import ActionType
-from .desc.widget import Widget
-from .global_log import get_logger
-from .desc.state_cluster import ActionListener
+    from .desc.widget import Widget
+    from .desc.state_cluster import ActionListener
 
 POSSIBLE_KEYS = [
     "BACK",
@@ -450,15 +449,15 @@ class UIEvent(InputEvent):
     This class describes a UI event of app, such as touch, click, etc
     """
 
-    def __init__(self, action_type: ActionType = ActionType.OTHER, widget: Widget = None, state: 'DeviceState' = None):
+    def __init__(self, action_type: ActionType = ActionType.OTHER, widget: 'Widget' = None, state: 'DeviceState' = None):
         super().__init__(action_type=action_type)
-        self._target: Widget = widget
+        self._target: 'Widget' = widget
         self.__state: 'DeviceState' = state
         if self._target is None:
             self.logger.warning(f"UI Event({self.action_type.string}) has no target widget:{self.__str__()}")
-        self.__listener: ActionListener = None
+        self.__listener: 'ActionListener' = None
 
-    def set_listener(self, listener: ActionListener):
+    def set_listener(self, listener: 'ActionListener'):
         """
         call from main/child thread
         """
@@ -476,13 +475,15 @@ class UIEvent(InputEvent):
         hashcode3 = hash(self.__state) if self.__state else 0x1
         return 0x9e3779b9 + (hashcode1 << 2) ^ (((hashcode2 << 4) ^ (hashcode3 << 3)) << 1)
 
-    def to_description(self) -> str:
-        if self._target:
+    def to_description(self, html: str = '') -> str:
+        if html:
+            return f'{self.action_type.string} {html}'
+        elif self._target:
             return f'{self.action_type.string} {self._target.get_brief_description()}'
         else:
             return f'{self.action_type.string}'
 
-    def get_target(self) -> Widget:
+    def get_target(self) -> 'Widget':
         return self._target
 
     def send(self, device):
@@ -732,8 +733,11 @@ class ScrollEvent(UIEvent):
         if event_dict is not None:
             self.__dict__.update(event_dict)
 
-    def to_description(self) -> str:
-        description = f"Scroll {self._target.get_brief_description() if self._target else ''}"
+    def to_description(self, html: str = '') -> str:
+        target = html
+        if not target:
+            target = self._target.get_brief_description() if self._target else ''
+        description = f"Scroll {target}"
         if self.action_type == ActionType.SCROLL_TOP_DOWN:
             description += " from top to down"
         elif self.action_type == ActionType.SCROLL_BOTTOM_UP:
@@ -820,9 +824,11 @@ class SetTextEvent(UIEvent):
         if event_dict is not None:
             self.__dict__.update(event_dict)
 
-    def to_description(self) -> str:
-        desc = f'Input {self.text}'
-        if self._target:
+    def to_description(self, html: str = '') -> str:
+        desc = f'Input "{self.text}" '
+        if html:
+            desc += 'to ' + html
+        elif self._target:
             desc += 'to ' + self._target.get_brief_description()
         return desc
 

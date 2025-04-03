@@ -70,8 +70,8 @@ void initCodeCoverage()
         return;
     }
     // 2. Get the corresponding static method ID
-    fastbotx::getGrowthRateMethod = fastbotx::jnienv->GetStaticMethodID(fastbotx::codeCoverageClass, "getGrowthRate", "()D");
-    if (fastbotx::getGrowthRateMethod == nullptr) {
+    fastbotx::getCoverageMethod = fastbotx::jnienv->GetStaticMethodID(fastbotx::codeCoverageClass, "getCoverage", "()D");
+    if (fastbotx::getCoverageMethod == nullptr) {
         // Handle the situation when the method is not found
         fastbotx::callJavaLogger(MAIN_THREAD, "can't find CodeCoverage class's getCodeCoverage method");
         return;

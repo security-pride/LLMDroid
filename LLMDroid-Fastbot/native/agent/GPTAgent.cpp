@@ -6,6 +6,9 @@
 #include "../thirdpart/json/json.hpp"
 #include <atomic>
 #include <stdexcept>
+#include <unordered_map>
+#include <utility>
+#include <iomanip>
 
 using json = nlohmann::json;
 
@@ -13,6 +16,7 @@ namespace fastbotx {
 
     GPTAgent::GPTAgent(MergedStateGraphPtr& graph, PromiseIntPtr prom):
     _file("/sdcard/gpt.txt", std::ios::out | std::ios::trunc),
+    _interactionFile("/sdcard/LLM-Interaction-Fastbot.txt", std::ios::out | std::ios::trunc),
     _questionRemained(0)
     {
         _mergedStateGraph = graph;
@@ -29,18 +33,33 @@ namespace fastbotx {
         file >> config;
         file.close();
         // Read field value
-        std::string appName = config["AppName"];
-        std::string description = config["Description"];
-        std::string apiKey = config["ApiKey"];
-        if (!appName.empty() && !description.empty()) {
-            _startPrompt = "I'm now testing an app called " + appName + " on Android.\n" + description + "\n";
-            _apiKey = apiKey;
-            callJavaLogger(MAIN_THREAD, "App:%s\nDesc: %s\nkey: %s", appName.c_str(), description.c_str(), _apiKey.c_str());
+        try {
+            std::string appName = config["AppName"];
+            std::string description = config["Description"];
+            std::string apiKey = config["ApiKey"];
+            if (config.contains("Model")) {
+                _model_str = config["Model"];
+                callJavaLogger(MAIN_THREAD, "Set model_str to %s", _model_str.c_str());
+            }
+            if (config.contains("BaseUrl")) {
+                _gpt.ChatCompletion->set_base_url(config["BaseUrl"]);
+                callJavaLogger(MAIN_THREAD, "Set base_url to %s", config["BaseUrl"].get<std::string>().c_str());
+            }
+            if (!appName.empty() && !description.empty()) {
+                _startPrompt = "I'm now testing an app called " + appName + " on Android.\n" + description + "\n";
+                _apiKey = apiKey;
+                callJavaLogger(MAIN_THREAD, "App:%s\nDesc: %s\nkey: %s", appName.c_str(), description.c_str(), _apiKey.c_str());
+            }
+            else {
+                callJavaLogger(MAIN_THREAD, "The value of `AppName` and `Description` are missing in json");
+                exit(0);
+            }
         }
-        else {
-            callJavaLogger(MAIN_THREAD, "empty json");
+        catch (const std::exception& e) {
+            callJavaLogger(CHILD_THREAD, "[Exception]: %s", e.what());
             exit(0);
         }
+
         init();
     }
 
@@ -49,13 +68,16 @@ namespace fastbotx {
         if (_file.is_open()) {
             _file.close();
         }
+        if (_interactionFile.is_open()) {
+            _interactionFile.close();
+        }
         return;
     }
 
     bool GPTAgent::init()
     {
         _gpt.auth.SetMaxTimeout(300000);
-        callJavaLogger(0, "Start child thread!!!");
+        callJavaLogger(MAIN_THREAD, "Start child thread!!!");
         std::thread child(&GPTAgent::pageAnalysisLoop, this);
         child.detach();
         return true;
@@ -63,16 +85,39 @@ namespace fastbotx {
 
     void GPTAgent::pushStateToQueue(QuestionPayload payload)
     {
-        {
-            // Protect access to queues using mutex locks
-            std::lock_guard<std::mutex> lock(_mtx);
-            this->_stateQueue.push(payload);
-            std::stringstream ss;
-            if (payload.from) { ss << "from: MergedState" << payload.from->getId();}
-            callJavaLogger(0, "[MAIN] push {%s} to queue, remains: %d", ss.str().c_str(), _stateQueue.size());
+        if (payload.type == AskModel::REANALYSIS) {
+            // need to protect _topValuedMergedState
+            std::unique_lock<std::mutex> lock(_mtx); 
+            int targetId = payload.from->getId();
+            auto end = _topValuedMergedState->begin() + std::min(_P2 + 1ul, _topValuedMergedState->size());
+            auto found = std::find_if(_topValuedMergedState->begin(), end,
+                                      [targetId](MergedStatePtr& ms){
+                                          return targetId == ms->getId();
+                                      });
+            if (found != end) {
+                // std::lock_guard<std::mutex> lock(_mtx);
+                std::unique_lock<std::mutex> questionCountLock(_questionMtx);
+                _questionRemained++;
+
+                this->_lowQueue.push(payload);
+                callJavaLogger(MAIN_THREAD, "[MAIN] push M%d to low priority queue, remains: %d", payload.from->getId(), _lowQueue.size());
+                lock.unlock();
+                _cv.notify_one();
+            }
         }
-        // Notify the waiting thread that an element has been added to the queue
-        _cv.notify_one();
+        else {
+            {
+                std::unique_lock<std::mutex> questionCountLock(_questionMtx);
+                _questionRemained++;
+                // Protect access to queues using mutex locks
+                std::lock_guard<std::mutex> lock(_mtx);
+                this->_stateQueue.push(payload);
+                std::stringstream ss;
+                if (payload.from) { ss << "from: MergedState" << payload.from->getId();}
+                callJavaLogger(MAIN_THREAD, "[MAIN] push {%s} to high priority queue, remains: %d", ss.str().c_str(), _stateQueue.size());
+            }
+            _cv.notify_one();
+        }
     }
 
     void GPTAgent::waitUntilQueueEmpty()
@@ -101,31 +146,32 @@ namespace fastbotx {
     {
         while (true)
         {
-            callJavaLogger(1, "[THREAD] before get lock");
-            std::unique_lock<std::mutex> lock(_mtx); // Use unique_lock to support waiting on condition variables
-            _cv.wait(lock, [this](){ return !_stateQueue.empty(); }); // Waiting queue is not empty
-            QuestionPayload payload = _stateQueue.front();
-            _stateQueue.pop();
-            //std::stringstream ss;
-            //if (payload.from) { ss << "from: MergedState" << payload.from->getId();}
-            callJavaLogger(1, "[THREAD]pop one payload from queue, remains: %d", _stateQueue.size());
-            lock.unlock();
-            
-            //_questionRemained.fetch_add(1);
-            std::unique_lock<std::mutex> questionCountLock(_questionMtx);
-            _questionRemained++;
-            questionCountLock.unlock();
+            //callJavaLogger(1, "[THREAD] before get lock");
+            QuestionPayload payload;
+            {
+                std::unique_lock<std::mutex> lock(_mtx);
+                if (_cv.wait_for(lock, std::chrono::seconds(1), [this]() { return !_stateQueue.empty() || !_lowQueue.empty(); })) {
+                    if (!_stateQueue.empty()) {
+                        payload = _stateQueue.front();
+                        _stateQueue.pop();
+                        callJavaLogger(CHILD_THREAD, "[THREAD]pop one payload from high priority queue, remains: %d", _stateQueue.size());
+                    }
+                    else if (!_lowQueue.empty()) {
+                        payload = _lowQueue.front();
+                        _lowQueue.pop();
+                        callJavaLogger(CHILD_THREAD, "[THREAD]pop one payload from low priority queue, remains: %d", _lowQueue.size());
+                    }
+                }
+                else {
+                    continue; // No payload available, retry
+                }
+            } // Lock is automatically released here
             
             switch(payload.type)
             {
                 case AskModel::STATE_OVERVIEW:
                 {
                     askForStateOverview(payload);
-                    break;
-                }
-                case AskModel::GRAPH_OVERVIEW:
-                {
-                    askForGraphOverview(payload);
                     break;
                 }
                 case AskModel::GUIDE:
@@ -138,15 +184,21 @@ namespace fastbotx {
                     askForTestFunction(payload);
                     break;
                 }
+                case AskModel::REANALYSIS:
+                {
+                    askForReanalysis(payload);
+                    break;
+                }
                 default: {
                     break;
                 }
             }// end switch
 
             //_questionRemained.fetch_sub(1);
-            std::unique_lock<std::mutex> questionCountLock2(_questionMtx);
+            //std::unique_lock<std::mutex> questionCountLock2(_questionMtx);
+            std::unique_lock<std::mutex> questionCountLock(_questionMtx);
             _questionRemained--;
-            questionCountLock2.unlock();
+            //questionCountLock2.unlock();
         }        
     }
 
@@ -179,6 +231,8 @@ namespace fastbotx {
 
     void GPTAgent::askForStateOverview(QuestionPayload& payload)
     {
+        std::unique_lock<std::mutex> lock(_mtx);
+        
         if (!payload.from) 
         {
             callJavaLogger(CHILD_THREAD, "[THREAD] payload.from is null, skip");
@@ -218,7 +272,7 @@ namespace fastbotx {
             promptstream << _requiredOutputPrompt_state2 <<  _requiredOutputPrompt_state_summary2 << _anwserFormatPrompt_state2;
         }
 
-        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), GPT_4);
+        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), AskModel::STATE_OVERVIEW);
 
         // process response
         payload.from->updateFromStateOverview(jsonResponse);
@@ -271,87 +325,14 @@ namespace fastbotx {
         callJavaLogger(CHILD_THREAD, "askForStateOverview complete!");
     }
 
-    void GPTAgent::askForGraphOverview(QuestionPayload& payload)
-    {
-        callJavaLogger(CHILD_THREAD, "[THREAD] ask for recent completed functions");
-        // Provides visited MergedStates for this time period
-        // Each MergedStates contains overview, actions executed during the time period, and function list
-        std::stringstream promptstream;
-        promptstream << _startPrompt << _inputExplanationPrompt_graphoverview;
-        json jsonObject;
-        for (auto it: payload.stateMap)
-        {
-            std::string key = "State" + std::to_string(it.first->getId());
-            jsonObject[key]["Overview"] = it.first->getOverview();
-            jsonObject[key]["Function List"] = it.first->getFunctionList();
-
-            std::vector<std::string> actionStr;
-            std::transform(it.second.begin(), it.second.end(), std::back_inserter(actionStr),
-                [](const ActionPtr& ptr) { 
-                    return ptr ? ptr->toDescription() : std::string("");
-                });
-            jsonObject[key]["Actions"] = actionStr;
-        }
-        
-        promptstream << "```State Informations\n" << jsonObject.dump(4) << "\n```\n";
-        //callJavaLogger(CHILD_THREAD, "[THREAD] after generate state informations\n%s\n", promptstream.str().c_str());
-
-        //callJavaLogger(CHILD_THREAD, "[THREAD] current%d", _mergedStateGraph->getCurrentNode()->getId());
-        std::string utg = _mergedStateGraph->temporalWalk(payload.transitCount);
-        _mergedStateGraph->appendUtgString(utg);
-        promptstream << "\n```UTG\n" << utg << "```\n";
-        callJavaLogger(CHILD_THREAD, "[THREAD] after temporalWalk");
-
-        promptstream << _requiredOutputPrompt_graph << _answerFormatPrompt_graph;
-        
-        std::string prompt = promptstream.str();
-        std::string response = getResponse(prompt, GPT_3);
-
-        // process response
-        // update every MergedState's function list
-        json jsonResponse;
-        try {
-            jsonResponse = json::parse(response);
-        }
-        catch (nlohmann::json::parse_error& e) {
-            callJavaLogger(CHILD_THREAD, "[Exception] %s, ask for response again", e.what());
-            response = getResponse(prompt, GPT_3);
-            jsonResponse = json::parse(response);
-        }
-
-        for (auto it = jsonResponse.begin(); it != jsonResponse.end(); ++it) {
-            int id = std::stoi(it.key().substr(5));
-            MergedStatePtr state = _mergedStateGraph->findMergedStateById(id);
-            if (state) {
-                state->updateCompletedFunctions(it.value()["Function List"].get<std::map<std::string, int>>());
-            }
-        }
-
-        return;
-    }
-
     void GPTAgent::askForGuiding(QuestionPayload& payload)
     {
         callJavaLogger(CHILD_THREAD, "[THREAD] ask for guiding");
         std::stringstream promptstream;
         promptstream << _startPrompt << _inputExplanationPrompt_guide;
 
-        // update navigation value
-        /*auto mergedStates = _mergedStateGraph->getMergedStates();
-        size_t total = mergedStates.size();
-        for (auto it: mergedStates) {
-            it->updateNavigationValue(total);
-        }*/
-
-        // sort by value
-        /*std::vector<MergedStatePtr> vec;
-        vec.assign(mergedStates.begin(), mergedStates.end());
-        std::sort(vec.begin(), vec.end(), [](MergedStatePtr a, MergedStatePtr b){
-            return a->getNavigationValue() > b->getNavigationValue();
-        });*/
-
         nlohmann::ordered_json jsonData;
-        int end = (_topValuedMergedState->size() > 8) ? 8 : _topValuedMergedState->size();
+        int end = (_topValuedMergedState->size() > _P2) ? _P2 : _topValuedMergedState->size();
         int count = 0;
         for (int i = 0; i < _topValuedMergedState->size(); i++) {
             if ((*_topValuedMergedState)[i]->hasUntestedFunctions()) {
@@ -365,10 +346,8 @@ namespace fastbotx {
         count = 0;
         if (jsonData.empty()) {
             for (int i = 0; i < _topValuedMergedState->size(); i++) {
-                if ((*_topValuedMergedState)[i]->hasUntestedFunctions()) {
-                    (*_topValuedMergedState)[i]->writeOverviewAndTop5Tojson(jsonData, true);
-                    count++;
-                }
+                (*_topValuedMergedState)[i]->writeOverviewAndTop5Tojson(jsonData, true);
+                count++;
                 if (count >= end) {
                     break;
                 }
@@ -385,15 +364,21 @@ namespace fastbotx {
         promptstream << _answerFormatPrompt_guide;
 
         // ask
-        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), GPT_4);
+        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), AskModel::GUIDE);
 
         // process response
         std::string targetState = jsonResponse["Target State"];
         _targetFunction =  jsonResponse["Target Function"];
-        int targetId = std::stoi(targetState.substr(5));
+        _targetMergedStateId = std::stoi(targetState.substr(5));
 
-
-        _promiseInt->set_value(targetId);
+        MergedStatePtr destination = _mergedStateGraph->findMergedStateById(_targetMergedStateId);
+        if (!destination) {
+            _promiseInt->set_value(-1);
+        }
+        else {
+            ReuseStatePtr targetState = destination->getTargetState(_targetFunction);
+            _promiseInt->set_value((targetState? targetState->getIdi(): -1));
+        }   
     }
 
     void GPTAgent::askForTestFunction(QuestionPayload& payload)
@@ -403,54 +388,141 @@ namespace fastbotx {
         promptstream << _startPrompt << _inputExplanationPrompt_functionTest;
         // Provide a detailed description of the page (including action number)
         // To extend to mergedWidget
+        std::string html = (payload.reuseState)->getStateDescription();
         promptstream << "\n```Page Description\n" 
-            << (payload.reuseState)->getStateDescription()
+            << html
             << "```\n";
 
         // Function to be tested
-        promptstream << "The function I want to test is : " << _targetFunction << "\n";
+        promptstream << "The target function I want to test is : " << _targetFunction << "\n";
 
+        // executed functions
+        if (!_executedFunctions.empty()) {
+            promptstream << "I've already I have already executed: [";
+            for (int i = 0; i < _executedFunctions.size(); i++) {
+                if (i != 0) { promptstream << ",\n"; }
+                promptstream << _executedFunctions[i];
+            }
+            promptstream << "]\n";
+        }
+        
         // Ask which control to click
         promptstream << _requiredOutputPrompt_functionTest << "\n" << _answerFormatPrompt_functionTest;
+        if (!_executedFunctions.empty()) {
+            promptstream << _answerFormatPrompt_functionTestEmpty;
+        }
 
         // ask
-        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), GPT_4);
+        nlohmann::ordered_json jsonResponse = getResponse(promptstream.str(), AskModel::TEST_FUNCTION);
 
         // process response
         int elementId = jsonResponse["Element Id"];
         int actionType = ActionType::CLICK + jsonResponse["Action Type"].get<int>();
+        // Special handling in Fastbot where the input corresponds to the click type.
+        if (jsonResponse["Action Type"].get<int>() == 6) {
+            actionType = ActionType::CLICK;
+        }
 
         if (elementId == -1) {
-            _promiseInt->set_value(-1);
+            _promiseAction->set_value(nullptr);
             return;
         }
 
         // Find action based on number
-        // If the widget comes from mergedWidgets, set the target of the action
-        // Return the id of the action in actions
-        int ret = payload.reuseState->findActionByElementId(elementId, actionType);
-
-        _promiseInt->set_value(ret);
-
+        // If the widget comes from mergedWidgets, change the target widget of the action
+        // Directly return actionPtr, with inputText set, and add executed event in here, using line in html
+        int actionId = payload.reuseState->findActionByElementId(elementId, actionType);
+        ActivityStateActionPtr ret = nullptr;
+        if (actionId == -1) {
+            // _actionByGPT = state->getActions()[0];
+            ret = nullptr;
+            callJavaLogger(CHILD_THREAD, "LLM returns None, meaning function %s is either finished testing or can't be tested", _targetFunction.c_str());
+        }
+        else {
+            ret = (payload.reuseState)->getActions()[actionId];
+            // set inputText to action
+            if (jsonResponse.contains("Input")) {
+                ret->setInputText(jsonResponse["Input"].get<std::string>());
+            }
+            addExecutedEvent(html, elementId, ret);
+        }
+        _promiseAction->set_value(ret);
     }
 
-    nlohmann::ordered_json GPTAgent::getResponse(std::string prompt, int type)
+    void GPTAgent::askForReanalysis(QuestionPayload& payload) {
+        callJavaLogger(CHILD_THREAD, "Ask for Reanalysis of MergedState%d", payload.from->getId());
+        std::stringstream prompt;
+
+        prompt << _startPrompt << inputExplanationReanalysis1;
+        prompt << "```Overview and Function List\n";
+        nlohmann::ordered_json data = payload.from->toJson();
+        prompt << data.dump(4);
+        prompt << "\n```\n";
+
+        prompt << inputExplanationReanalysis2 << "```Controls in HTML Description\n";
+
+        // create widgetsDict
+        std::unordered_map<int, WidgetInfo> widgetsDict;
+        int id = 1;
+        auto rootState = payload.from->getRootState();
+        for (const auto& state : payload.from->getReuseStates()) {
+            for (const auto& widget : state->diffWidgets(rootState)) {
+                widgetsDict[id] = WidgetInfo{"", state, -1, widget};
+                id++;
+            }
+        }
+
+        if (widgetsDict.empty()) {
+            callJavaLogger(CHILD_THREAD, "All states are exactly the same as root state, no different widgets to analysis");
+            return;
+        }
+
+        // remove duplicate widgets
+        std::unordered_map<std::string, std::vector<int>> uniqueWidgets;
+        for (const auto& widgetPair : widgetsDict) {
+            int id = widgetPair.first;
+            const auto& widgetInfo = widgetPair.second;
+            std::string html = widgetInfo.widget->toHTML({}, false, 0);
+            if (uniqueWidgets.find(html) == uniqueWidgets.end()) {
+                uniqueWidgets[html] = {id};
+            } else {
+                uniqueWidgets[html].push_back(id);
+            }
+        }
+
+        // generate widget list in html
+        for (const auto& item : uniqueWidgets) {
+            int widgetId = item.second[0];
+            prompt << widgetsDict[widgetId].widget->toHTML({}, true, widgetId);
+        }
+
+        prompt << "```\n";
+        prompt << requiredOutputReanalysis + answerFormatReanalysis;
+
+        nlohmann::ordered_json json_resp = getResponse(prompt.str(), AskModel::REANALYSIS);
+
+        payload.from->updateFromReanalysis(json_resp, uniqueWidgets, widgetsDict);
+
+    }
+    
+    nlohmann::ordered_json GPTAgent::getResponse(const std::string& prompt, AskModel type)
     {
-        //std::this_thread::sleep_for(std::chrono::seconds(5));
         saveToFile(prompt, 0);
         callJavaLogger(CHILD_THREAD, "[THREAD]prompt:\n%s\n-----prompt end %d-----", prompt.c_str(), prompt.length());
         callJavaLogger(CHILD_THREAD, "[THREAD]Start Asking...");
-        //std::this_thread::sleep_for(std::chrono::seconds(3));
-        //callJavaLogger(1, "[THREAD]Get response");
         
         _conversation.AddUserData(prompt);
+        double beginStamp = 0;
+        double endStamp = 0;
+        liboai::Response rawResponse;
         
         if (_gpt.auth.SetKey(_apiKey))
         {
             int try_times = 0;
+            beginStamp = currentStamp();
             while (try_times < 5) {
                 try {
-                    liboai::Response rawResponse = _gpt.ChatCompletion->create(_model_str[type], _conversation, 0.0);
+                    rawResponse = _gpt.ChatCompletion->create(_model_str, _conversation, 0.0);
                     bool success = _conversation.Update(rawResponse);
                     if (success) { break; }
                 } catch (const std::exception& e) {
@@ -462,6 +534,7 @@ namespace fastbotx {
                     try_times++;
                 }
             }
+            endStamp = currentStamp();
             if (try_times == 5) {
                 callJavaLogger(CHILD_THREAD, "[ERROR]: error when getting GPT's response");
                 exit(0);
@@ -476,6 +549,18 @@ namespace fastbotx {
         
         _cachedConversation++;
         std::string response = _conversation.GetLastResponse();
+
+        double timeCost = (endStamp - beginStamp) / 1000.0;
+        nlohmann::json rawJson = rawResponse.raw_json;
+
+        using UnderlyingType = typename std::underlying_type<AskModel>::type;
+        _interactionFile << std::fixed << std::setprecision(5) <<
+                timeCost << ", " <<
+                _model_str << ", " <<
+                rawJson["usage"]["prompt_tokens"] << ", " <<
+                rawJson["usage"]["completion_tokens"] << ", " <<
+                static_cast<UnderlyingType>(type) << std::endl;
+
         callJavaLogger(1, "[THREAD]Get response\n%s\n", response.c_str());
 
 
@@ -494,11 +579,11 @@ namespace fastbotx {
         }
 
         // Intercept the following string starting from the "{" character
-        size_t pos = response.find("{");
+        size_t pos = response.find('{');
         if (pos != std::string::npos) {
             response = response.substr(pos);
         }
-        pos = response.rfind("}");
+        pos = response.rfind('}');
         if (pos != std::string::npos) {
             response = response.substr(0, pos + 1);
         }
@@ -514,14 +599,49 @@ namespace fastbotx {
         return jsonResponse;
     }
 
-    void GPTAgent::resetPromise(PromiseIntPtr prom)
+    void GPTAgent::resetPromise(PromiseIntPtr promInt, PromiseActionPtr promAction)
     {
-        _promiseInt = prom;
+        _promiseAction = std::move(promAction);
+        _promiseInt = std::move(promInt);
     }
 
     void GPTAgent::addTestedFunction()
     {
         _testedFunctions.insert(_targetFunction);
+        // add update tested function to mergedState(target)
+        MergedStatePtr ms = _mergedStateGraph->findMergedStateById(_targetMergedStateId);
+        if (ms) {
+            ms->updateCompletedFunction(_targetFunction);
+        }
+        else {
+            callJavaLogger(MAIN_THREAD, "Can't find MergedState%d when marking function(%s) as tested", _targetMergedStateId, _targetFunction.c_str());
+        }
+    }
+
+    void GPTAgent::addExecutedEvent(const std::string& html, int widget_id, ActionPtr act) {
+        std::istringstream stream(html);
+        std::string line;
+        std::string target = "id=" + std::to_string(widget_id);
+        
+        while (std::getline(stream, line)) {
+            if (line.find(target) != std::string::npos) {
+                std::istringstream line_stream(line);
+                std::string cell;
+                std::string last_cell;
+                
+                while (std::getline(line_stream, cell, '\t')) {
+                    last_cell = cell;
+                }
+                
+                _executedFunctions.push_back(act->toDescription(last_cell));
+                break;
+            }
+        }
+    }
+
+    void GPTAgent::clearExecutedEvents() {
+        _executedFunctions.clear();
     }
 
 }
+

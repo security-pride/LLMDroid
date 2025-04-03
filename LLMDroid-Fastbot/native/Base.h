@@ -70,7 +70,7 @@ namespace fastbotx {
     extern std::mutex loggerMutex;
 
     extern jclass codeCoverageClass;
-    extern jmethodID getGrowthRateMethod;
+    extern jmethodID getCoverageMethod;
 
 
     template <typename ...Args>

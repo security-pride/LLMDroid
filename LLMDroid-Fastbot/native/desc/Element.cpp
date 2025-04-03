@@ -161,7 +161,8 @@ namespace fastbotx {
 
     ElementPtr Element::createFromXml(const tinyxml2::XMLDocument &doc) {
         int count = 0;
-        ElementPtr elementPtr = std::make_shared<Element>(count); // Use the empty element as the FAKE root element
+        ElementPtr elementPtr = std::make_shared<Element>(
+                count); // Use the empty element as the FAKE root element
         count++;
         _allClickableFalse = true;
         elementPtr->fromXml(doc, elementPtr, count);
@@ -230,7 +231,8 @@ namespace fastbotx {
         return xmlStr;
     }
 
-    void Element::fromXml(const tinyxml2::XMLDocument &nodeOfDoc, const ElementPtr &parentOfNode, int& count) {
+    void Element::fromXml(const tinyxml2::XMLDocument &nodeOfDoc, const ElementPtr &parentOfNode,
+                          int &count) {
         const ::tinyxml2::XMLElement *node = nodeOfDoc.RootElement();
         this->fromXMLNode(node, parentOfNode, count);
 
@@ -239,8 +241,9 @@ namespace fastbotx {
 
     }
 
-    void Element::fromXMLNode(const tinyxml2::XMLElement *xmlNode, const ElementPtr &parentOfNode, int& count) {
-        if (nullptr == xmlNode) {return;}
+    void Element::fromXMLNode(const tinyxml2::XMLElement *xmlNode, const ElementPtr &parentOfNode,
+                              int &count) {
+        if (nullptr == xmlNode) { return; }
 
 //    BLOG("This Node is %s", std::string(xmlNode->GetText()).c_str());
         int indexOfNode = 0;
@@ -430,57 +433,46 @@ namespace fastbotx {
         return static_cast<long >(hashcode);
     }
 
-    void Element::addAction(ActionInState act)
-    {
+    void Element::addAction(ActionInState act) {
         this->_actionsInState.push_back(act);
     }
 
-    const std::string Element::getClassnameTrunc() const
-    {
+    const std::string Element::getClassnameTrunc() const {
         size_t dotPosition = this->_classname.find_last_of('.');
         if (dotPosition != std::string::npos) {
             return this->_classname.substr(dotPosition + 1);
-        }
-        else {
+        } else {
             return this->_classname;
         }
-        
+
     }
 
-    const std::string Element::getResourceIDTrunc() const
-    {
+    const std::string Element::getResourceIDTrunc() const {
         size_t dotPosition = this->_resourceID.find_last_of('/');
         if (dotPosition != std::string::npos) {
             return this->_resourceID.substr(dotPosition + 1);
-        }
-        else {
+        } else {
             return this->_resourceID;
         }
     }
 
-    HTML_CLASS Element::getHtmlClass()
-    {
+    HTML_CLASS Element::getHtmlClass() {
         HTML_CLASS html_class = P;
         if (_checkable) {
             html_class = HTML_CLASS::CHECKBOX;
-        }
-        else if (_isEditable) {
+        } else if (_isEditable) {
             html_class = HTML_CLASS::INPUT;
-        }
-        else if (_scrollable) {
+        } else if (_scrollable) {
             html_class = HTML_CLASS::SCROLLER;
-        }
-        else if (_clickable) {
+        } else if (_clickable) {
             html_class = HTML_CLASS::BUTTON;
         }
         return html_class;
     }
 
-    std::string Element::getHtmlSpecialAttribute(HTML_CLASS html_class)
-    {
+    std::string Element::getHtmlSpecialAttribute(HTML_CLASS html_class) {
         std::stringstream infoStr;
-        switch (html_class)
-        {
+        switch (html_class) {
             case HTML_CLASS::SCROLLER: {
                 switch (getScrollType()) {
                     case ScrollType::ALL: {
@@ -495,7 +487,9 @@ namespace fastbotx {
                         infoStr << "direction=\"vertical\" ";
                         break;
                     }
-                    default: { break; }
+                    default: {
+                        break;
+                    }
                 }
                 break;
             }
@@ -503,48 +497,91 @@ namespace fastbotx {
                 infoStr << "input=\"?\" ";
                 break;
             }
-            default: { break; }
+            default: {
+                break;
+            }
         }
         return infoStr.str();
     }
 
-    std::string Element::toHTML()
-    {
+    std::string
+    Element::toHTML(const std::vector<ElementPtr> &elementToMerge, bool noChild, int actionId) {
         std::stringstream infoStr;
+
         HTML_CLASS html_class = getHtmlClass();
-        infoStr <<  "<" << htmlClass[html_class] << " ";
-        
-        // class
+
+        infoStr << "<" << htmlClass[html_class] << " ";
+
+        if (html_class != HTML_CLASS::P) {
+            infoStr << "id=" << (actionId == -1 ? getId() : actionId) << " ";
+        }
+
+        // Get the view type based on class name
         std::string className = getClassnameTrunc();
         if (!className.empty()) {
             infoStr << "class=\"" << className << "\" ";
         }
-        
+        else {
+            std::string childClassName;
+            for (const auto &child: elementToMerge) {
+                childClassName = child->getClassnameTrunc();
+                if (!childClassName.empty()) {
+                    infoStr << "class=\"" << childClassName << "\" ";
+                    break;
+                }
+            }
+        }
+
         // resource-id
         std::string resource_id = getResourceIDTrunc();
         if (!resource_id.empty()) {
             infoStr << "resource-id=\"" << resource_id << "\" ";
         }
-        
-        // content-desc(label)
-        if (!_contentDesc.empty()){
-            infoStr << "content-desc=\"" << _contentDesc << "\" ";
+        else {
+            std::string childResourceID;
+            for (const auto &child: elementToMerge) {
+                childResourceID = child->getResourceIDTrunc();
+                if (!childResourceID.empty()) {
+                    infoStr << "resource-id=\"" << childResourceID << "\" ";
+                    break;
+                }
+            }
         }
-        
-        // add special attribute
+
+        // content-desc(label)
+        std::string description = getContentDesc();
+        if (!description.empty()) {
+            infoStr << "content-desc=\"" << description << "\" ";
+        }
+
+        // Add special attributes
         infoStr << getHtmlSpecialAttribute(html_class);
 
         infoStr << ">";
 
-        if (!_text.empty()) {
-            infoStr << _text;
+        // text
+        std::string text = getText();
+        bool fatherEmpty = text.empty();
+        if (!fatherEmpty) {
+            infoStr << text;
+        }
+        bool firstFlag = true;
+        for (const auto &child: elementToMerge) {
+            std::string childText = child->getText();
+            if (!childText.empty()) {
+                if (firstFlag && fatherEmpty) {
+                    infoStr << childText;
+                    firstFlag = false;
+                } else {
+                    infoStr << " <br> " << childText;
+                }
+            }
         }
 
-        infoStr << htmlEndTag[html_class] << "\n";
+        if (noChild) { infoStr << htmlEndTag[html_class]; }
+        infoStr << "\n";
 
         return infoStr.str();
     }
-
 }
-
 #endif //Element_CPP_

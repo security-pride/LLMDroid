@@ -6,6 +6,8 @@ import logging
 import logging.config
 import os
 import sys
+from typing import Literal
+
 import pkg_resources
 import shutil
 from threading import Timer
@@ -45,7 +47,9 @@ class DroidBot(object):
                  master=None,
                  humanoid=None,
                  ignore_ad=False,
-                 replay_output=None):
+                 replay_output=None,
+                 code_coverage: Literal['time', 'androlog', 'jacoco'] = 'androlog'
+                 ):
         """
         initiate droidbot with configurations
         :return:
@@ -111,7 +115,9 @@ class DroidBot(object):
                 script_path=script_path,
                 profiling_method=profiling_method,
                 master=master,
-                replay_output=replay_output)
+                replay_output=replay_output,
+                code_coverage=code_coverage
+            )
         except Exception:
             import traceback
             traceback.print_exc()

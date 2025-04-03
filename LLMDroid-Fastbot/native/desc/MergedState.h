@@ -51,6 +51,18 @@ namespace fastbotx {
 
     typedef std::shared_ptr<MergedStateGraphEdge> MergedStateGraphEdgePtr;
 
+    struct WidgetInfo {
+        std::string function;
+        ReuseStatePtr state;
+        int importance;
+        WidgetPtr widget;
+    };
+
+    struct FunctionDetail {
+        int importance;
+        ReuseStatePtr state;
+    };
+    
     class MergedState: public HashNode, public FunctionListener, public std::enable_shared_from_this<MergedState>
     {
     public:
@@ -64,7 +76,7 @@ namespace fastbotx {
         const std::string getOverview() { return _overview; }
 
         // call from child thread
-        std::map<std::string, int> getFunctionList() { return _functionList; }
+        std::map<std::string, FunctionDetail> getFunctionList() { return _functionList; }
 
         virtual uintptr_t hash() const { return _hashcode; }
 
@@ -102,6 +114,9 @@ namespace fastbotx {
          */
         void updateFromStateOverview(nlohmann::ordered_json &jsonData);
 
+
+        void updateFromReanalysis(nlohmann::ordered_json &jsonResp, std::unordered_map<std::string, std::vector<int>>& uniqueWidgets, std::unordered_map<int, WidgetInfo>& WidgetInfo);
+
         /**
          * @brief Update the completion status of each function in the function list
          * @note call from child thread
@@ -116,7 +131,6 @@ namespace fastbotx {
          */
         void updateCompletedFunction(std::string func);
 
-        std::string functionList2json();
 
         std::set<ReuseStatePtr>& getReuseStates() { return _states; }
 
@@ -141,6 +155,8 @@ namespace fastbotx {
          */
         void writeOverviewAndTop5Tojson(nlohmann::ordered_json& top5, bool ignoreImportance = false);
 
+        nlohmann::ordered_json toJson();
+
         /**
          * set function to new state's widgets,
          * set listener to actions.
@@ -156,6 +172,10 @@ namespace fastbotx {
          * @note call from child thread - askForGuiding
          */
         bool hasUntestedFunctions();
+
+        bool needReanalysed();
+
+        ReuseStatePtr getTargetState(std::string function);
 
     private:
 
@@ -205,12 +225,13 @@ namespace fastbotx {
         std::vector<MergedStateGraphEdgePtr> _edges;
 
         std::string _overview;
-        std::map<std::string, int> _functionList;
+        std::map<std::string, FunctionDetail> _functionList;
         std::mutex _functionListMutex;
 
         int _navigationValue = 0;
         int _navigationCount = 0;
 
+        bool _needReanalysed = false;
     };
 
     

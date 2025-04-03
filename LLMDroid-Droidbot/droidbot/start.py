@@ -89,6 +89,8 @@ def parse_args():
                         help="Ignore Ad views by checking resource_id.")
     parser.add_argument("-replay_output", action="store", dest="replay_output",
                         help="The droidbot output directory being replayed.")
+    parser.add_argument("--code_coverage", action="store", dest="code_coverage", choices=["androlog", "jacoco", "time"], default="androlog",
+                        help="Using which tool to monitor real-time code coverage")
     options = parser.parse_args()
     # print options
     return options
@@ -165,7 +167,9 @@ def main():
             master=opts.master,
             humanoid=opts.humanoid,
             ignore_ad=opts.ignore_ad,
-            replay_output=opts.replay_output)
+            replay_output=opts.replay_output,
+            code_coverage=opts.code_coverage
+        )
         droidbot.start()
     return
 

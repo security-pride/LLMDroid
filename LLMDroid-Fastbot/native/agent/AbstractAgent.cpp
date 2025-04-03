@@ -77,7 +77,7 @@ namespace fastbotx {
         if (origin) { return origin; } 
         
         //First compare with the current MergedState
-        const float threshold = 0.6;
+        const float threshold = _maxSimilarity;
         MergedStatePtr current = _mergedStateGraph->getCurrentNode();
         if (current == nullptr) {
             return nullptr;
@@ -127,13 +127,6 @@ namespace fastbotx {
             if (mergedState == _mergedStateGraph->getCurrentNode()) {
                 callJavaLogger(MAIN_THREAD, "***State%d belongs to current MergedState%d", state->getIdi(), mergedState->getId());
                 mergedState->addState(state, _mCurrentAction, false, false);
-            // Determine whether it has been in this node for a long time
-            if (false) {
-            // Ask only about the current MergedState
-            // Always in a group of similar pages
-            // GPTFunctionAnalysis({mergedState, mergedState, _mCurrentAction});
-                }
-                
             }
             //state belongs to the previous node
             else {
@@ -141,10 +134,9 @@ namespace fastbotx {
                 // Add an edge to the previous MergedState to other MergedState
                 MergedStatePtr preState = _mergedStateGraph->getCurrentNode();
                 preState->addState(state, _mCurrentAction, false, true);
-                
+                //callJavaLogger(MAIN_THREAD,  "before mergedState->addState");
                 mergedState->addState(state, _mCurrentAction, true, false);
-                // Return to the previous page, no more questions
-                // GPTFunctionAnalysis({_mergedStateGraph->getCurrentNode(), mergedState, _mCurrentAction, nullptr, false});
+                //callJavaLogger(MAIN_THREAD,  "before switchMode");
             }
         }
         else
@@ -169,28 +161,54 @@ namespace fastbotx {
             
         }
         // automatically check whether should do graph overview and create payload
-        autoGraphOverview(mergedState);
-            // update threshold
+        // autoGraphOverview(mergedState);
+        _mergedStateGraph->addNode(mergedState, _mCurrentAction, false);
+        switchMode();
+        callJavaLogger(MAIN_THREAD,  "after switchMode");
+    }
+
+    void AbstractAgent::switchMode() {
+        // update code coverage every step
         double currentCodeCoverage = getCodeCoverage();
         callJavaLogger(MAIN_THREAD, "[Check] currentCodeCoverage: %f", currentCodeCoverage);
-
-        auto res = _codeCoverageMonitor.update(currentCodeCoverage);
-        _currentThreshold = res.second;
-        _growthRateWindow.push_back(res.first);
-        if (_growthRateWindow.size() > _rateCapacity) {
-            _growthRateWindow.erase(_growthRateWindow.begin());
-        }
-
-        callJavaLogger(MAIN_THREAD, "[Check] CV window size: %d, current threshold: %f", _growthRateWindow.size(), _currentThreshold);
-
-        if (!_guideMode && !_functionTestMode) {
-            checkShouldWait();
-        }       
-        if (_guideMode) {
-            // Check whether the navigation follows the path
-            guideCheck(state, isNew);
-        }
         
+        if (_currentMode == Mode::EXPLORE) {
+            // update threshold
+            auto res = _codeCoverageMonitor.update(currentCodeCoverage);
+            _currentThreshold = res.second;
+            _growthRateWindow.push_back(res.first);
+            if (_growthRateWindow.size() > _rateCapacity) {
+                _growthRateWindow.erase(_growthRateWindow.begin());
+            }
+
+            callJavaLogger(MAIN_THREAD, "[Check] CV window size: %d, current threshold: %f", _growthRateWindow.size(), _currentThreshold);
+
+            checkShouldWait();
+            if (_shouldWait) {
+                prepareForNavigation();
+                return;
+            }
+        }
+
+        if (_currentMode == Mode::NAVIGATE) {
+            int status = guideCheck();
+            if (status == 1) {
+                // guide succeed at current step, but still not reach target.
+                return;
+            }
+            else if (status == 2) {
+                onNavigationOver(true);
+            }
+            else {
+                onNavigationFailed();
+                return;
+            }
+        }
+
+        if (_currentMode == Mode::TEST_FUNCTION) {
+            prepareTestFunction();
+            return;
+        }
     }
 
     void AbstractAgent::checkShouldWait()
@@ -212,28 +230,22 @@ namespace fastbotx {
 
         if (_useCodeCoverage) {
             callJavaLogger(MAIN_THREAD, "[Check] Using code coverage");
-        }
-        else {
-            callJavaLogger(MAIN_THREAD, "[Check] Using time");
-        }
-
-        if (_useCodeCoverage) {
             if (lowGrowthRate) {
                 _shouldWait = true;
             }
         }
         else {
+            callJavaLogger(MAIN_THREAD, "[Check] Using time");
             double currentTime = currentStamp();
             if (currentTime > _nextStageTime) {
                 _shouldWait = true;
             }
         }
 
-
     }
 
     void AbstractAgent::autoGraphOverview(MergedStatePtr& mergedState)
-    {       
+    {
             // Ask for the content of the current test every once in a while
         double currentTime = currentStamp();
         if (!_guideMode && !_functionTestMode && (currentTime - _lastGraphOverviewTime) > _graphOverviewTimeWindow)
@@ -247,7 +259,7 @@ namespace fastbotx {
             // MergedStateGraph has been updated at this time
             // Executed currentAction and came to mergedState
             // So currentAction belongs to the action of the previous MergedState
-            
+
             std::map<MergedStatePtr, std::set<ActionPtr>> stateMap;
             bool shouldStop = false;
             do
@@ -259,14 +271,14 @@ namespace fastbotx {
                 if (lastState)
                 {
                     // Find whether the key of lastState already exists in stateMap
-                    auto it = stateMap.find(lastState);                    
+                    auto it = stateMap.find(lastState);
                     if (it != stateMap.end())
-                    {   
-                        it->second.insert(action);          
+                    {
+                        it->second.insert(action);
                     }
                     else
-                    {                      
-                        stateMap.insert({lastState, {action}});         
+                    {
+                        stateMap.insert({lastState, {action}});
                     }
                 }
                 _mergedStateQueue.pop();
@@ -286,58 +298,102 @@ namespace fastbotx {
             }
             _mergedStateQueue.push(std::make_tuple(_mergedStateGraph->getCurrentNode(), _mCurrentAction, false));
             _mergedStateGraph->addNode(mergedState, _mCurrentAction, false);
-            
+
         }
     }
-
 
     void AbstractAgent::GPTFunctionAnalysis(QuestionPayload payload)
     {
         _gptAgent.pushStateToQueue(payload);
-        // std::stringstream ss;
-        // if (payload.from) { ss << "from: MergedState" << payload.from->getId();}
-        // callJavaLogger(0, "[MAIN]after pushStateToQueue: {%s}", ss.str().c_str());
         return;
     }
 
-    void AbstractAgent::guideMode(bool failed)
-    {
-        if (_guideTime >= 3) {
-            callJavaLogger(MAIN_THREAD, "[MAIN] guide failed too many times, GUIDE mode over");
-            guideModeStop(false);
-            callJavaLogger(MAIN_THREAD, "[GUIDE STAT] %d/%d", _successGuideTime, _totalGuideTime);
-            return;
-        }
+    void AbstractAgent::prepareForNavigation() {
+        _currentMode = Mode::NAVIGATE;
+        _gptAgent.waitUntilQueueEmpty();
+        debugMergedStates();
 
-        // _guideTime means: before we call this function,
+        _guideTime++;
+        _totalGuideTime++;
+
+        // create payload
+        resetFuture();
+        GPTFunctionAnalysis({AskModel::GUIDE, nullptr, {}, 0, nullptr, false});
+
+        _guideTarget = _futureInt.get();
+        callJavaLogger(MAIN_THREAD, "[MAIN] get guide target state: %d", _guideTarget);
+        //find path
+        _paths = _graph->findPath(_guideTarget, true);
+
+        // if path not found
+        if (_paths.empty()) {
+            callJavaLogger(MAIN_THREAD, "[warning]: no path found from R0 to R%d", _guideTarget);
+            onNavigationFailed();
+        }
+        else {
+            _currentPath = _paths[0];
+            _paths.erase(_paths.begin());
+        }
+    }
+
+    void AbstractAgent::onNavigationFailed() {
+        // _guideTime means: After detecting low growth rate,
         // we have already tried guide for _guideTime times
         callJavaLogger(MAIN_THREAD, "[MAIN] try guiding for %d times", _guideTime);
 
-        if (failed) {
-            if (_guideTime > 0 && _currentSimilarityCheck > _minSimilarity) {
-                _currentSimilarityCheck -= 0.05;
-            }
-        }
-
-        // always restart and find path from R0 when asking gpt for guiding.
-        // Each time the navigation target is asked, up to three paths to the target will be calculated.
-        // If navigation fails, try other paths, if all paths fail, ask for a new destination
-        if (_paths.empty()) {
-            if (failed) {
-                _gptAgent.addTestedFunction();
-                callJavaLogger(MAIN_THREAD, "No path available, try to ask for new target");
-            }
-            askForGuiding(failed);
+        if (_guideTime > 1 && _currentSimilarityCheck > _minSimilarity) {
+            _currentSimilarityCheck -= 0.05;
         }
 
         if (!_paths.empty()) {
             _currentPath = _paths[0];
             _paths.erase(_paths.begin());
         }
+        else if (_guideTime < 3) {
+            // callJavaLogger(MAIN_THREAD, "[MAIN] try to guide again");
+            _gptAgent.addTestedFunction();
+            // TODO update function in mergedState
+            callJavaLogger(MAIN_THREAD, "No path available, try to ask for new target");
+            prepareForNavigation();
+        }
+        else {
+            callJavaLogger(MAIN_THREAD, "[MAIN] guide failed too many times, GUIDE mode over");
+            onNavigationOver(false);
+        }
+
+        // always restart and find path from R0 when asking gpt for guiding.
+        // Each time the navigation target is asked, up to three paths to the target will be calculated.
+        // If navigation fails, try other paths, if all paths fail, ask for a new destination
+
+        
         return;
     }
 
-    void AbstractAgent::guideCheck(ReuseStatePtr state, bool isNew)
+    void AbstractAgent::onNavigationOver(bool success) {
+        // Statistical navigation success rate
+        if (success) {
+            _successGuideTime++;
+            _currentMode = Mode::TEST_FUNCTION;
+            callJavaLogger(MAIN_THREAD, "Switch to TEST_FUNCTION mode");
+        }
+        else {
+            prepareBackToExplore();
+        }
+        
+        callJavaLogger(MAIN_THREAD, "[GUIDE STAT] %d/%d", _successGuideTime, _totalGuideTime);
+        
+        // Clear related data
+        _guideTarget = -1;
+        _paths.clear();
+        _guideTime = 0;
+        _currentSimilarityCheck = _maxSimilarity;
+        // self.__current_path = None
+        // self.__paths = []
+        // self.__failure_in_single_round = 0
+        // self.__current_similarity_check = self.max_similarity
+    }
+
+    int AbstractAgent::guideCheck()
     {
         bool isCorrect = false;
         int targetId = -1;
@@ -347,7 +403,7 @@ namespace fastbotx {
             Step currentStep = _currentPath.steps.front();
             targetId = currentStep.node;
             _currentPath.steps.pop();
-            if (state->getIdi() == targetId) {
+            if (_mCurrentState->getIdi() == targetId) {
             // path correct for this step
                 isCorrect = true;
                 break;
@@ -361,10 +417,10 @@ namespace fastbotx {
                     break;
                 }
                 // Replace front's action with the current state's action
-                ActionPtr replace = state->findSimilarAction(_currentPath.steps.front().action);
+                ActionPtr replace = _mCurrentState->findSimilarAction(_currentPath.steps.front().action);
                 if (replace) {
                     callJavaLogger(MAIN_THREAD, "Found similar action in current state and replace next step");
-                    // TODO: create a copy of replace
+                    // create a copy of replace
                     ActivityStateActionPtr tmp = std::dynamic_pointer_cast<ActivityStateAction>(replace);
                     _currentPath.steps.front().action = tmp ? std::make_shared<ActivityStateAction>(*(tmp.get())) : replace;
                     isCorrect = true;
@@ -374,8 +430,8 @@ namespace fastbotx {
             else {  
                 // Determine the similarity between two pages
                 ReuseStatePtr targetState = _graph->findReuseStateById(targetId);
-                float similarity = state->computeSimilarity(targetState);
-                callJavaLogger(MAIN_THREAD, "Similarity between target%d and now%d is %f", targetId, state->getIdi(), similarity);
+                float similarity = _mCurrentState->computeSimilarity(targetState);
+                callJavaLogger(MAIN_THREAD, "Similarity between target%d and now%d is %f", targetId, _mCurrentState->getIdi(), similarity);
                 
                 // If the similarity is very high, it is still considered successful.
                 if (similarity > _currentSimilarityCheck) {
@@ -385,10 +441,10 @@ namespace fastbotx {
                         break;
                     }
                     // Replace front's action with the current state's action
-                    ActionPtr replace = state->findSimilarAction(_currentPath.steps.front().action);
+                    ActionPtr replace = _mCurrentState->findSimilarAction(_currentPath.steps.front().action);
                     if (replace) {
                         callJavaLogger(MAIN_THREAD, "Found similar action in current state and replace next step");
-                        // TODO: create a copy of replace 2
+                        // create a copy of replace 2
                         ActivityStateActionPtr tmp = std::dynamic_pointer_cast<ActivityStateAction>(replace);
                         _currentPath.steps.front().action = tmp ? std::make_shared<ActivityStateAction>(*(tmp.get())) : replace;
                         isCorrect = true;
@@ -397,12 +453,12 @@ namespace fastbotx {
                     // If no matching action is found, it is still considered a failure.
                     else {
                         // The path does not match. Check whether the state of the following steps is the same as the current one, that is, check whether there is a step skip.
-                        callJavaLogger(MAIN_THREAD, "[MAIN] target:%d, now at %d  try skip next step", targetId, state->getIdi());
+                        callJavaLogger(MAIN_THREAD, "[MAIN] target:%d, now at %d  try skip next step", targetId, _mCurrentState->getIdi());
                     }
                 }
                 else {
                     // The path does not match. Check whether the state of the following steps is the same as the current one, that is, check whether there is a step skip.
-                    callJavaLogger(MAIN_THREAD, "[MAIN] target:%d, now at %d  try skip next step", targetId, state->getIdi());
+                    callJavaLogger(MAIN_THREAD, "[MAIN] target:%d, now at %d  try skip next step", targetId, _mCurrentState->getIdi());
                 }
             }
         }
@@ -410,26 +466,42 @@ namespace fastbotx {
         if (isCorrect) {
             if (_currentPath.steps.empty()) {
                 callJavaLogger(MAIN_THREAD, "[MAIN] successfully guide to R%d, GUIDE mode over, switch to FUNCTION TEST mode", targetId);
-                guideModeStop(true);
-                _successGuideTime++;
-                callJavaLogger(MAIN_THREAD, "[GUIDE STAT] %d/%d", _successGuideTime, _totalGuideTime);
+                return 2;
             }
             else {
                 callJavaLogger(MAIN_THREAD, "[MAIN] guide succeed at this step");
+                return 1;
             }
         }
         else {
             // guide failure
-            callJavaLogger(MAIN_THREAD, "[MAIN] guide failed. target:%d, now at %d", targetId, state->getIdi());
-            if (_guideTime < 3) {
-                callJavaLogger(MAIN_THREAD, "[MAIN] try to guide again");
-                guideMode(true);
-            }
-            else {
-                callJavaLogger(MAIN_THREAD, "[MAIN] guide failed too many times, GUIDE mode over");
-                guideModeStop(false);
-                callJavaLogger(MAIN_THREAD, "[GUIDE STAT] %d/%d", _successGuideTime, _totalGuideTime);
+            callJavaLogger(MAIN_THREAD, "[MAIN] guide failed. target:%d, now at %d", targetId, _mCurrentState->getIdi());
+            return 3;
+        }
+    }
 
+    void AbstractAgent::prepareBackToExplore() {
+        callJavaLogger(MAIN_THREAD, "prepare back to EXPLORE mode");
+        _currentMode = Mode::EXPLORE;
+
+        // 'checkShouldWait' related
+        _nextStageTime = _runTime + currentStamp();
+        _lastGraphOverviewTime = currentStamp();
+        _growthRateWindow.clear();
+        _shouldWait = false;
+
+        // consider the function is tested whether succeed or not
+        // MergedStatePtr ms = state->getMergedState();
+        // ms->updateCompletedFunction(_gptAgent.getFunctionToTest());
+        _gptAgent.addTestedFunction();
+
+        _executedSteps = 0;
+        _gptAgent.clearExecutedEvents();
+
+        // reanalyze mergedStates
+        for (MergedStatePtr ms: _mergedStateGraph->getMergedStates()) {
+            if (ms->needReanalysed()) {
+                GPTFunctionAnalysis(QuestionPayload{AskModel::REANALYSIS, ms});
             }
         }
     }
@@ -499,48 +571,43 @@ namespace fastbotx {
         _newState->setPriority((int) totalPriority);
     }
 
-    void AbstractAgent::guideModeStop(bool success) {
-        _guideMode = false;
-        _functionTestMode = true;
-        _guideTime = 0;
-        _currentSimilarityCheck = _maxSimilarity;
-        _paths.clear();
-        if (!success) {
-            functionTestStop();
-        }
-    }
-
     ActionPtr AbstractAgent::resolveNewAction() {
         //update priority
         this->adjustActions();
 
-        if (_shouldWait) {
-            guideMode(false);
-        }
+        if (_currentMode == Mode::NAVIGATE) {
+            if (!_currentPath.steps.empty()) {
+                // convert the copy to real one
+                ActionPtr nextAction = _currentPath.steps.front().action;
+                ActivityStateActionPtr tmp = std::dynamic_pointer_cast<ActivityStateAction>(nextAction);
+                ActionPtr action = tmp ? _mCurrentState->findSimilarAction(nextAction) : nextAction;
+                // debug
+                if (!action) {
+                    callJavaLogger(MAIN_THREAD, "failed when convert the copy to real one: %s\n",
+                                _currentPath.steps.front().action->toDescription().c_str());
+                    exit(0);
+                }
 
-        if (_guideMode && !_currentPath.steps.empty()) {
-            // TODO: convert the copy to real one
-            ActionPtr nextAction = _currentPath.steps.front().action;
-            ActivityStateActionPtr tmp = std::dynamic_pointer_cast<ActivityStateAction>(nextAction);
-            ActionPtr action = tmp ? _mCurrentState->findSimilarAction(nextAction) : nextAction;
-            // debug
-            if (!action) {
-                callJavaLogger(MAIN_THREAD, "failed when convert the copy to real one: %s\n",
-                               _currentPath.steps.front().action->toDescription().c_str());
+                _mNewAction = action;
+                return action;
+            }
+            else {
+                callJavaLogger(MAIN_THREAD, "In NAVIGATE mode, but current path's steps is empty, this isn't supposed to happen");
                 exit(0);
             }
-
-            _mNewAction = action;
-            return action;
         }
 
-        if (_functionTestMode) {
-            bool finished = functionTest(true);
-            _newAction = _actionByGPT;
-            _mNewAction = std::dynamic_pointer_cast<Action>(_actionByGPT);
-            functionTestStop();
-            return _mNewAction;
-
+        if (_currentMode == Mode::TEST_FUNCTION) {
+            if (_actionByGPT) {
+                _newAction = _actionByGPT;
+                _mNewAction = std::dynamic_pointer_cast<Action>(_actionByGPT);
+                callJavaLogger(MAIN_THREAD, "About to execute event chosen by llm");
+                return _mNewAction;
+            }
+            else {
+                callJavaLogger(MAIN_THREAD, "event by llm is None, back to EXPLORE mode");
+                prepareBackToExplore();
+            }
         }
 
         ActionPtr action = this->selectNewAction();
@@ -549,7 +616,6 @@ namespace fastbotx {
         
         return action;
     }
-
 
     ActivityStateActionPtr AbstractAgent::handleNullAction() const {
         ActivityStateActionPtr action = this->_newState->randomPickAction(this->_validateFilter);
@@ -589,71 +655,36 @@ namespace fastbotx {
         }
     }
 
-    bool AbstractAgent::functionTest(bool firstTime)
+    void AbstractAgent::prepareTestFunction()
     {
-        ReuseStatePtr state = std::dynamic_pointer_cast<ReuseState>(_newState);
-        resetFuture();
-        GPTFunctionAnalysis({AskModel::TEST_FUNCTION, nullptr, {}, 0, state, firstTime});
-        int actionId = _futureInt.get();
-        if (actionId == -1) {
-            _actionByGPT = state->getActions()[0];
+        if (_executedSteps < 5) {
+            _executedSteps++;
+
+            resetFuture();
+            ReuseStatePtr state = std::dynamic_pointer_cast<ReuseState>(_newState);          
+            GPTFunctionAnalysis({AskModel::TEST_FUNCTION, nullptr, {}, 0, state, false});
+
+            _actionByGPT = _futureAction.get();           
         }
         else {
-            _actionByGPT = state->getActions()[actionId];
+            _actionByGPT = nullptr;
+            callJavaLogger(MAIN_THREAD, "TEST FUNCTION for over 5 steps, quit!");
         }
-        // Update function list
-        MergedStatePtr ms = state->getMergedState();
-        ms->updateCompletedFunction(_gptAgent.getFunctionToTest());
-        _gptAgent.addTestedFunction();
-        return true;
+        
     }
 
     void AbstractAgent::resetFuture()
     {
-        PromiseIntPtr prom = std::make_shared<std::promise<int>>();
-        _futureInt = prom->get_future();
-        _gptAgent.resetPromise(prom);
+        PromiseIntPtr promInt = std::make_shared<std::promise<int>>();
+        _futureInt = promInt->get_future();
+        PromiseActionPtr promAction = std::make_shared<std::promise<ActivityStateActionPtr>>();
+        _futureAction = promAction->get_future();
+        _gptAgent.resetPromise(promInt, promAction);
     }
 
     double AbstractAgent::getCodeCoverage() {
-        jdouble rate = jnienv->CallStaticDoubleMethod(codeCoverageClass, getGrowthRateMethod);
+        jdouble rate = jnienv->CallStaticDoubleMethod(codeCoverageClass, getCoverageMethod);
         return rate;
-    }
-
-    void AbstractAgent::functionTestStop() {
-
-        callJavaLogger(MAIN_THREAD, "FUNCTION TEST mode over, back to RANDOM test mode");
-        _functionTestMode = false;
-        _nextStageTime = _runTime + currentStamp();
-        _lastGraphOverviewTime = currentStamp();
-        _growthRateWindow.clear();
-    }
-
-    void AbstractAgent::askForGuiding(bool failed) {
-        _gptAgent.waitUntilQueueEmpty();
-        _shouldWait = false;
-        _guideMode = true;
-        debugMergedStates();
-
-        _guideTime++;
-        _totalGuideTime++;
-
-        // create payload
-        resetFuture();
-        GPTFunctionAnalysis({AskModel::GUIDE, nullptr, {}, 0, nullptr, failed});
-
-        _guideTarget = _futureInt.get();
-        callJavaLogger(MAIN_THREAD, "[MAIN] get guide target: %d", _guideTarget);
-        //find path
-        _paths = _mergedStateGraph->findPaths(_guideTarget, true);
-
-        // if path not found
-        if (_paths.empty()) {
-            callJavaLogger(MAIN_THREAD, "error: no path found from R0");
-            // _guideMode = false;
-            // exit(0);
-            guideMode(true);
-        }
     }
 
 }

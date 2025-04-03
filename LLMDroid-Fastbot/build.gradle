@@ -13,6 +13,11 @@ allprojects {
         tasks.withType(JavaCompile).tap {
             configureEach {
                 options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/framework.jar')
+                /*options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/org.jacoco.core-0.8.8.jar')
+                options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/asm-9.2.jar')
+                options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/asm-analysis-9.2.jar')
+                options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/asm-commons-9.2.jar')
+                options.compilerArgs.add('-Xbootclasspath/p:monkey/libs/asm-tree-9.2.jar')*/
             }
         }
     }

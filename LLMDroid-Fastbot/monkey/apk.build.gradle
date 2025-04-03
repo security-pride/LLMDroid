@@ -89,6 +89,8 @@ dependencies {
     compileOnly files('libs/framework.jar')
     implementation 'com.google.code.gson:gson:2.8.9'
     implementation 'com.vdurmont:emoji-java:5.0.0'
+    //implementation 'org.jacoco:org.jacoco.core:0.8.8'
+    //implementation 'org.json:json:20240303'
 }
 
 gradle.projectsEvaluated {

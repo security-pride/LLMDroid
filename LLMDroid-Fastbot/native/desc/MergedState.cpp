@@ -45,6 +45,7 @@ namespace fastbotx {
             auto success = _states.insert(state);
             _cursor = state;
             if (success.second && !_functionList.empty()) {
+                _needReanalysed = true;
                 updateLaterJoinedState(state);
             }
         }
@@ -132,14 +133,7 @@ namespace fastbotx {
         }
     }
 
-    std::string MergedState::functionList2json()
-    {
-        json jsonData = _functionList;
-        std::string jsonString = jsonData.dump();
-        return jsonString;
-    }
-
-    void MergedState::updateInfo(std::string& response)
+    /*void MergedState::updateInfo(std::string& response)
     {
         std::lock_guard<std::mutex> lock(_mergedStateMutex);
         
@@ -181,7 +175,7 @@ namespace fastbotx {
         }
 
         return;
-    }
+    }*/
 
     void MergedState::updateFromStateOverview(nlohmann::ordered_json &jsonData)
     {
@@ -210,7 +204,7 @@ namespace fastbotx {
         for (int i = 0; i < size; i++) {
             auto it = _functionList.find(functionList[i].first);
             if (it == _functionList.end()) {
-                _functionList.insert(std::make_pair(functionList[i].first, size - i));
+                _functionList.insert(std::make_pair(functionList[i].first, FunctionDetail{size - i, _root}));
             }
         }
 
@@ -233,10 +227,10 @@ namespace fastbotx {
         {
             auto found = _functionList.find(it.first);
             if (found != _functionList.end()) {
-                found->second = it.second;
+                found->second.importance = it.second;
             }
             else {
-                _functionList.insert(std::make_pair(it.first, it.second));
+                _functionList.insert(std::make_pair(it.first, FunctionDetail{it.second, _root}));
             }
         }
     }
@@ -258,10 +252,10 @@ namespace fastbotx {
     {
         auto it = _functionList.find(func);
         if (it == _functionList.end()) {
-            _functionList.insert(std::make_pair(func, 0));
+            _functionList.insert(std::make_pair(func, FunctionDetail{0, _root}));
         }
         else {
-            (*it).second = 0;
+            (*it).second.importance = 0;
         }
     }
 
@@ -368,7 +362,7 @@ namespace fastbotx {
                 auto it = _functionList.find(function);
                 if (it != _functionList.end()) {
                     std::unique_lock<std::mutex> uniqueLock(_functionListMutex);
-                    it->second = 0;
+                    it->second.importance = 0;
                     uniqueLock.unlock();
                     callJavaLogger(caller, "Function:%s is tested by perform: %s", function.c_str(), action->toDescription().c_str());
                 }
@@ -386,14 +380,25 @@ namespace fastbotx {
         top5[key]["FunctionList"] = sortedFunctions;
     }
 
+    nlohmann::ordered_json MergedState::toJson() {
+        nlohmann::ordered_json data;
+        data["Overview"] = _overview;
+        std::vector<std::string> functions;
+        for (auto& it: _functionList) {
+            functions.push_back(it.first);
+        }
+        data["Function List"] = functions;
+        return data;
+    }
+
     std::vector<std::string> MergedState::sortFunctionsByValue(bool ignoreImportance) {
         // Create a vector to store the reversed form of value and key
         std::vector<std::pair<int, std::string>> pairs;
 
         std::unique_lock<std::mutex> uniqueLock(_functionListMutex);
         for (const auto& kvp : _functionList) {
-            if (kvp.second > 0 || ignoreImportance) {
-                pairs.push_back(std::make_pair(kvp.second, kvp.first));
+            if (kvp.second.importance > 0 || ignoreImportance) {
+                pairs.push_back(std::make_pair(kvp.second.importance, kvp.first));
             }
         }
         uniqueLock.unlock();
@@ -445,13 +450,46 @@ namespace fastbotx {
         // so there is no need to lock _functionList
         bool flag = false;
         for (auto it: _functionList) {
-            if (it.second > 0) {
+            if (it.second.importance > 0) {
                 flag = true;
                 break;
             }
         }
         return flag;
     }
+
+    void MergedState::updateFromReanalysis(nlohmann::ordered_json &jsonResp, std::unordered_map<std::string, std::vector<int>>& uniqueWidgets, std::unordered_map<int, WidgetInfo>& widgetDict) {
+        std::lock_guard<std::mutex> lock(_mergedStateMutex);
+        
+        for (auto& it: jsonResp.items()) {
+            try {
+                int id = std::stoi(it.key());
+                std::string function = it.value();
+                if (_functionList.find(function) == _functionList.end()) {
+                    _functionList.insert(std::make_pair(function, FunctionDetail{1, widgetDict.at(id).state}));
+                }
+                std::vector<int> widgetIds = uniqueWidgets[widgetDict.at(id).widget->toHTML({}, false, 0)];
+                for (int widgetId: widgetIds) {
+                    WidgetPtr widget = widgetDict[widgetId].widget;
+                    widget->setFunction(function);
+
+                    for (auto& action: widgetDict[widgetId].state->findActionsByWidget(widget)) {
+                        updateCompletedFunction2(CHILD_THREAD, action);
+                    }
+                }
+            }
+            catch (const std::exception& e) {
+                callJavaLogger(CHILD_THREAD, "[Exception]: %s, skip this kv-pair", e.what());
+            }
+        }
+        _needReanalysed = false;
+    }
+
+    bool MergedState::needReanalysed() {
+        std::lock_guard<std::mutex> lock(_mergedStateMutex);
+        return _needReanalysed;
+    }
+
 
 
     /////////////////////////////////////////
@@ -582,6 +620,16 @@ namespace fastbotx {
             }
         }
         return paths;
+    }
+
+    ReuseStatePtr MergedState::getTargetState(std::string function) {
+        if (_functionList.find(function) != _functionList.end()) {
+            return _functionList[function].state;
+        }
+        else {
+            callJavaLogger(CHILD_THREAD, "function{%s} doesn't belong to any state in MergedState{%d}", function.c_str(), _id);
+            return nullptr;
+        }
     }
     
 }

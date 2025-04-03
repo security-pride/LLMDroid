@@ -34,7 +34,7 @@ namespace fastbotx {
         /// \param deviceType
         /// \return
         static AbstractAgentPtr create(AlgorithmType agentT, const ModelPtr &model,
-                                       bool  useCodeCoverage,
+                                       bool useCodeCoverage,
                                        DeviceType deviceType = DeviceType::Normal);
     };
 }

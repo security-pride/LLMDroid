@@ -166,7 +166,7 @@ namespace fastbotx {
         return strs.str();
     }
 
-    std::string Action::toDescription()
+    std::string Action::toDescription(const std::string& html)
     {
         return std::string(actName[this->_actionType]);
     }
@@ -176,14 +176,16 @@ namespace fastbotx {
 
     }
 
-    std::string ActivityStateAction::toDescription()
+    std::string ActivityStateAction::toDescription(const std::string& html)
     {
         if (!this->_target)
         {
             return std::string(actName[this->_actionType]);
         }
         std::string description;
-        std::string info;
+        // Try to get text, content-desc, resource-id
+        std::string info = getWidgetInfo();
+
         // Get the target type based on class name
         std::string viewType;
         std::string className = this->_target->getClass();//getWidgetClass();
@@ -192,14 +194,13 @@ namespace fastbotx {
             // Extract the substring starting from the character after '.'
             viewType = className.substr(dotPosition + 1);
         }
-        // Try to get text, content-desc, resource-id
-        info = getWidgetInfo();
+
+        std::string subject = html.empty() ? viewType + "(" + info + ")" : html;
         // scroll: scroll ScrollView from top to down
         if (this->_actionType >= ActionType::SCROLL_TOP_DOWN && 
                 this->_actionType<= ActionType::SCROLL_BOTTOM_UP_N)
         {
-            description = "scroll " + viewType;
-            description += "(" + info + ")";
+            description = "scroll " + subject;
             switch (this->_actionType)
             {
                 case ActionType::SCROLL_TOP_DOWN: {
@@ -227,12 +228,11 @@ namespace fastbotx {
         // input: Input xxx to (res-id:search_text)
         else if (hasInput()) {
             description = "Input '" + _inputText + "' to ";
-            description += "(" + info + ")";
+            description += subject;
         }
         // click or other action: click Button with text: hello
         else {
-            description = actName[this->_actionType] + " " + viewType;
-            description += "(" + info + ")";
+            description = actName[this->_actionType] + " " + subject;
         }
         
         return description;

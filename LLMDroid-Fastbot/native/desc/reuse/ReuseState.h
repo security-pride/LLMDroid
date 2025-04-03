@@ -65,7 +65,7 @@ class ReuseState : public State, public std::enable_shared_from_this<ReuseState>
         std::vector<MiniGraphEdge> _miniEdges;
         void addMiniEdge(MiniGraphEdge edge);
         MiniGraphEdge* getUnvisitedMiniEdge();
-        std::string diffWidgets(ReuseStatePtr target);
+        std::vector<WidgetPtr> diffWidgets(ReuseStatePtr target);
 
         /**
          *find similar action in current state to replace next step
@@ -109,6 +109,7 @@ class ReuseState : public State, public std::enable_shared_from_this<ReuseState>
         */
         std::vector<WidgetPtr> getAllWidgets();
 
+        std::vector<ActivityStateActionPtr> findActionsByWidget(WidgetPtr widget);
     protected:
         virtual void buildStateFromElement(WidgetPtr parentWidget, ElementPtr element);
 

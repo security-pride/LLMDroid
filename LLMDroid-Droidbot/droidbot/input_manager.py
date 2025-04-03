@@ -1,7 +1,6 @@
-import json
-import logging
 import subprocess
 import time
+from typing import Literal
 
 from .input_event import EventLog
 from .policy.input_policy import *
@@ -32,8 +31,10 @@ class InputManager(object):
 
     def __init__(self, device, app, policy_name, random_input,
                  event_count, event_interval,
+                 code_coverage: Literal['time', 'androlog', 'jacoco'],
                  script_path=None, profiling_method=None, master=None,
-                 replay_output=None):
+                 replay_output=None
+                 ):
         """
         manage input event sent to the target device
         :param device: instance of Device
@@ -63,28 +64,28 @@ class InputManager(object):
             from .input_script import DroidBotScript
             self.script = DroidBotScript(script_dict)
 
-        self.policy = self.get_input_policy(device, app, master)
+        self.policy = self.get_input_policy(device, app, master, code_coverage)
         self.profiling_method = profiling_method
 
-    def get_input_policy(self, device, app, master):
+    def get_input_policy(self, device, app, master, code_coverage):
         if self.policy_name == POLICY_NONE:
             input_policy = None
         elif self.policy_name == POLICY_MONKEY:
             input_policy = None
         elif self.policy_name in [POLICY_NAIVE_DFS, POLICY_NAIVE_BFS]:
-            input_policy = UtgNaiveSearchPolicy(device, app, self.random_input, self.policy_name)
+            input_policy = UtgNaiveSearchPolicy(device, app, self.random_input, self.policy_name, code_coverage)
         elif self.policy_name in [POLICY_GREEDY_DFS, POLICY_GREEDY_BFS]:
-            input_policy = UtgGreedySearchPolicy(device, app, self.random_input, self.policy_name)
+            input_policy = UtgGreedySearchPolicy(device, app, self.random_input, self.policy_name, code_coverage)
         elif self.policy_name == POLICY_MEMORY_GUIDED:
             from .input_policy2 import MemoryGuidedPolicy
-            input_policy = MemoryGuidedPolicy(device, app, self.random_input)
+            input_policy = MemoryGuidedPolicy(device, app, self.random_input, code_coverage)
         elif self.policy_name == POLICY_LLM_GUIDED:
             from .input_policy3 import LLM_Guided_Policy
             input_policy = LLM_Guided_Policy(device, app, self.random_input)
         elif self.policy_name == POLICY_REPLAY:
             input_policy = UtgReplayPolicy(device, app, self.replay_output)
         elif self.policy_name == POLICY_MANUAL:
-            input_policy = ManualPolicy(device, app)
+            input_policy = ManualPolicy(device, app, code_coverage)
         else:
             self.logger.warning("No valid input policy specified. Using policy \"none\".")
             input_policy = None

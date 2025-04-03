@@ -17,21 +17,25 @@
 namespace fastbotx {
 
     typedef std::shared_ptr<std::promise<int>> PromiseIntPtr;
-    typedef std::shared_ptr<std::future<int>> FutureIntPtr;
+    typedef std::future<int> FutureInt;
+    typedef std::shared_ptr<std::promise<std::string>> PromiseStrPtr;
+    typedef std::future<std::string> FutureStr;
+    typedef std::shared_ptr<std::promise<ActivityStateActionPtr>> PromiseActionPtr;
+    typedef std::future<ActivityStateActionPtr> FutureAction;
 
-    enum AskModel
+    enum class AskModel
     {
-        STATE_OVERVIEW, GRAPH_OVERVIEW, GUIDE, TEST_FUNCTION, GUIDE_FAILURE
+        STATE_OVERVIEW, GRAPH_OVERVIEW, GUIDE, TEST_FUNCTION, GUIDE_FAILURE, REANALYSIS
     };
     
     struct QuestionPayload
     {
         AskModel type;
-        MergedStatePtr from;
+        MergedStatePtr from = nullptr;
         std::map<MergedStatePtr, std::set<ActionPtr>> stateMap;
-        int transitCount;
-        ReuseStatePtr reuseState;
-        bool flag; // GUIDE:guideFailed, TEST_FUNCTION:firstTime
+        int transitCount = 0;
+        ReuseStatePtr reuseState = nullptr;
+        bool flag = false; // GUIDE:guideFailed, TEST_FUNCTION:firstTime
     };
     
     
@@ -57,7 +61,7 @@ namespace fastbotx {
 
         void waitUntilQueueEmpty();
 
-        void resetPromise(PromiseIntPtr prom);
+        void resetPromise(PromiseIntPtr promInt, PromiseActionPtr promAction);
 
         std::string getFunctionToTest() { return _targetFunction; }
         
@@ -68,16 +72,15 @@ namespace fastbotx {
         */
         void addTestedFunction();
 
+        void clearExecutedEvents();
+
     private:
         //std::atomic<int> _questionRemained;
         bool _saveToFile = true;
         std::ofstream _file;
+        std::ofstream _interactionFile;
 
-        const char* _model_str[3] = {
-            "gpt-3.5-turbo",
-            "gpt-4o",
-            "claude-3-opus-20240229"
-        };
+        std::string _model_str = "gpt-4o-mini";
 
         std::string _startPrompt;
         std::string _apiKey;
@@ -87,6 +90,7 @@ namespace fastbotx {
         int _cachedConversation = 0;
         size_t _conversationLen = 0;
         std::queue<QuestionPayload> _stateQueue;
+        std::queue<QuestionPayload> _lowQueue;
         std::mutex _mtx;
         std::condition_variable _cv;
 
@@ -94,14 +98,19 @@ namespace fastbotx {
         std::string _mergedStateGraphString;
 
         PromiseIntPtr _promiseInt;
+        PromiseStrPtr _promiseStr;
+        PromiseActionPtr _promiseAction;
 
         std::mutex _questionMtx;
         int _questionRemained = 0;
 
         std::string _targetFunction; //Gpt in the guide determines the test function
+        int _targetMergedStateId;
         std::set<std::string> _testedFunctions; // All functions that have been implemented in the guide
+        std::vector<std::string> _executedFunctions;
 
         // state overview
+        const unsigned long _P2 = 10;
         MergedStateVecPtr _topValuedMergedState = std::make_shared<MergedStateVec>();
 
         bool init();
@@ -113,25 +122,24 @@ namespace fastbotx {
          */
         void pageAnalysisLoop();
 
-        void askForFunction(QuestionPayload state);
-
         void askForStateOverview(QuestionPayload& payload);
-
-        void askForGraphOverview(QuestionPayload& payload);
 
         void askForGuiding(QuestionPayload& payload);
 
         void askForTestFunction(QuestionPayload& payload);
-        
-        void processResponse(std::string response);
+
+        void askForReanalysis(QuestionPayload& payload);
 
         void saveToFile(const std::string& prompt, const std::string& response);
 
         void saveToFile(const std::string& value, int type);
 
-        nlohmann::ordered_json getResponse(std::string prompt, int type);
+        nlohmann::ordered_json getResponse(const std::string& prompt, AskModel type);
+    
+        void addExecutedEvent(const std::string& html, int widget_id, ActionPtr act);
     };
 
 }
 
 #endif
+

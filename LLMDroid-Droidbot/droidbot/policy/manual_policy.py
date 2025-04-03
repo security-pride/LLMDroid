@@ -8,8 +8,8 @@ class ManualPolicy(UtgBasedInputPolicy):
     manually explore UFG
     """
 
-    def __init__(self, device, app):
-        super(ManualPolicy, self).__init__(device, app, False)
+    def __init__(self, device, app, code_coverage):
+        super(ManualPolicy, self).__init__(device, app, False, code_coverage)
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.__first_event = True

@@ -1,20 +1,23 @@
+import datetime
 import json
 import os.path
 import sys
 import time
 from abc import abstractmethod
-from typing import Optional
+from typing import Optional, Literal
 from enum import Enum
 from concurrent.futures import Future
 
 from .input_policy import InputPolicy
 from ..desc.action_type import ActionType
 from ..input_event import KeyEvent, InputEvent
-from ..desc.utg import UTG, Step, Path
+from ..desc.utg import UTG, Path
 from ..desc.device_state import DeviceState
 from ..desc.state_cluster import StateCluster
 from .llm_agent import QuestionMode, QuestionPayload, LLMAgent
-from .cv_monitor import CodeCoverageMonitor
+from ..coverage.base_monitor import CodeCoverageMonitor
+from ..coverage.androlog_monitor import AndroLogCVMonitor
+from ..coverage.jacoco_monitor import JacocoCVMonitor
 
 
 class Mode(Enum):
@@ -29,7 +32,7 @@ class UtgBasedInputPolicy(InputPolicy):
     state-based input policy
     """
 
-    def __init__(self, device, app, random_input):
+    def __init__(self, device, app, random_input, code_coverage: Literal['time', 'androlog', 'jacoco']):
         super(UtgBasedInputPolicy, self).__init__(device, app)
         self.random_input = random_input
         self.script = None
@@ -49,20 +52,43 @@ class UtgBasedInputPolicy(InputPolicy):
         self.__current_mode: Mode = Mode.EXPLORE
 
         # cv monitor
-        with open('./config.json', 'r', encoding='utf-8') as file:
-            config = json.load(file)
-            log_identifier = config['Tag']
-            total = config['TotalMethod']
-        self.__cv_monitor = CodeCoverageMonitor(save_dir=app.output_dir, wsize=80, tag=log_identifier, total=total)
-        self.__use_cv = True
-        if self.__use_cv:
+        self.__cv_monitor: Optional[CodeCoverageMonitor] = None
+        if code_coverage == 'androlog':
+            with open('./config.json', 'r', encoding='utf-8') as file:
+                config = json.load(file)
+                log_identifier = config.get('Tag', '')
+                total = config.get('TotalMethod', -1)
+                if log_identifier == '' or total == -1:
+                    self.logger.error("Must specify Tag and TotalMethod in config.json when using androlog!")
+                    raise Exception("Must specify Tag and TotalMethod in config.json when using androlog!")
+            self.__cv_monitor = AndroLogCVMonitor(save_dir=app.output_dir, wsize=80, tag=log_identifier, total=total)
             self.__cv_monitor.start_logcat_listener()
+
+        elif code_coverage == 'jacoco':
+            with open('./config.json', 'r', encoding='utf-8') as file:
+                config: dict = json.load(file)
+                ec_file_path = config.get('EcFilePath', '')
+                class_file_path = config.get('ClassFilePath', '')
+                if ec_file_path == '' or class_file_path == '':
+                    self.logger.error("Must specify EcFilePath and ClassFilePath in config.json when using jacoco!")
+                    raise Exception("Must specify EcFilePath and ClassFilePath in config.json when using jacoco!")
+            current_time = datetime.datetime.now()
+            formatted_time = current_time.strftime("%y%m%d_%H%M%S")
+            self.__cv_monitor = JacocoCVMonitor(save_dir=app.output_dir, wsize=60,
+                                                jarpath='./JacocoBridge.jar',
+                                                ec_file_name=f'{app.package_name}_{formatted_time}.ec',
+                                                ec_file_path=ec_file_path, class_file_path=class_file_path)
+
+        self.__use_coverage = False if code_coverage == 'time' else True
+        # if self.__use_coverage:
+        #     self.__cv_monitor.start_logcat_listener()
 
         # guidance and navigation
         # for one guidance
         self.__navigate_target: int = -1
+        self.__executed_steps: int = 0
         self.__function_to_test: str = ''
-        self.__current_path: Path = None
+        self.__current_path: Optional[Path] = None
         self.__paths = []
         # Each time you enter navigation mode, the number of navigation failures for each target is up to 3 times.
         # Navigation attempts are made up to three times per target, depending on the number of paths calculated.
@@ -72,7 +98,7 @@ class UtgBasedInputPolicy(InputPolicy):
         # for all guidance
         self.__total_guide_times = 0
         self.__successful_guide_times = 0
-        self.__GUIDANCE_INTERVAL = 150
+        self.__GUIDANCE_INTERVAL = 240  # seconds
         self.__next_stage_time = time.time() + self.__GUIDANCE_INTERVAL
 
         self.__future: Future
@@ -103,6 +129,8 @@ class UtgBasedInputPolicy(InputPolicy):
         self.__update_utg()
 
         # LLMDroid
+        if not self.__llm_agent.is_child_thread_alive():
+            raise Exception("LLM Agent terminated")
         self.__process_state()
 
         # update last view trees for humanoid
@@ -124,14 +152,15 @@ class UtgBasedInputPolicy(InputPolicy):
         self.last_event = event
 
         event.visit()
-        self.current_state.print_events()
+        # self.current_state.print_events()
+        self.logger.info(f"Next event: {event.to_description()}")
         return event
 
     def __update_utg(self):
         self.current_state = self.utg.add_transition(self.last_event, self.last_state, self.current_state)
 
     def __process_state(self):
-        self.logger.debug(f'State{self.current_state.get_id()} HTML, Activity:{self.current_state.foreground_activity}\n{self.current_state.to_html()}')
+        # self.logger.debug(f'State{self.current_state.get_id()} HTML, Activity:{self.current_state.foreground_activity}\n{self.current_state.to_html()}')
 
         cluster = self.__find_most_similar()
         if cluster:
@@ -175,7 +204,7 @@ class UtgBasedInputPolicy(InputPolicy):
 
     def __check_should_wait(self) -> bool:
         low_growth_rate = False
-        if self.__use_cv:
+        if self.__use_coverage:
             low_growth_rate = self.__cv_monitor.check_low_growth_rate()
         else:
             # by time
@@ -252,6 +281,10 @@ class UtgBasedInputPolicy(InputPolicy):
         # Only three statuses are returned: complete success, temporary success, and temporary failure.
 
     def __switch_mode(self):
+        # update code coverage every step
+        if self.__cv_monitor is not None:
+            self.__cv_monitor.update_code_coverage()
+
         if self.__current_mode == Mode.EXPLORE:
             should_wait = self.__check_should_wait()
             if should_wait:
@@ -295,10 +328,10 @@ class UtgBasedInputPolicy(InputPolicy):
         # ask gpt for guidance
         self.__reset_future()
         self.__llm_agent.push_to_queue(QuestionPayload(mode=QuestionMode.GUIDE))
-        # get target cluster and function
+        # get target state and function
         self.__navigate_target, self.__function_to_test = self.__future.result()
-        # Calculate path
-        paths = self.utg.get_paths(self.__navigate_target)
+        # Calculate path to target state
+        paths = self.utg.get_paths(target_state_id=self.__navigate_target)
         # Set path
         if paths:
             self.__current_path = paths[0]
@@ -319,14 +352,8 @@ class UtgBasedInputPolicy(InputPolicy):
         elif self.__failure_in_single_round < 3:
             # If less than three times, change the target. ask for guidance again
             self.__failure_in_single_round += 1
-            self.__llm_agent.add_tested_function(self.__function_to_test)
-            # It is considered that this function cannot be tested, and it is also marked as tested.
-            cluster = self.utg.find_cluster_by_id(self.__navigate_target)
-            if cluster:
-                cluster.update_tested_function(self.__function_to_test)
-            else:
-                self.logger.warning(f"Guide failed, can't even find Cluster{self.__navigate_target}")
-
+            # It is considered that this function cannot be tested, but still mark it as tested.
+            self.__llm_agent.add_tested_function()
             self.__prepare_for_navigate()
         # If it reaches three times, it is considered completely fail.
         else:
@@ -340,7 +367,6 @@ class UtgBasedInputPolicy(InputPolicy):
             self.__current_mode = Mode.TEST_FUNCTION
             self.logger.info("Switch to TEST_FUNCTION mode")
         else:
-            self.__llm_agent.add_tested_function(self.__function_to_test)
             self.__prepare_back_to_explore()
         self.logger.info(
             f"[GUIDE STAT] {self.__successful_guide_times}/{self.__total_guide_times} success rate:{self.__successful_guide_times / self.__total_guide_times}")
@@ -354,17 +380,19 @@ class UtgBasedInputPolicy(InputPolicy):
         self.__current_similarity_check = self.max_similarity
 
     def __prepare_test_function(self):
-        # ask gpt to choose action
-        self.__reset_future()
-        self.__llm_agent.push_to_queue(QuestionPayload(mode=QuestionMode.TEST_FUNCTION, state=self.current_state))
-        self.__event_by_llm = self.__future.result()
+        if self.__executed_steps < 5:
+            # ask gpt to choose action
+            self.__reset_future()
+            self.__llm_agent.push_to_queue(QuestionPayload(mode=QuestionMode.TEST_FUNCTION, state=self.current_state))
+            self.__event_by_llm = self.__future.result()
 
-        # consider the function is tested whether succeed or not
-        self.__llm_agent.add_tested_function(self.__function_to_test)
-        self.utg.current_cluster.update_tested_function(self.__function_to_test)
+            self.__executed_steps += 1
 
-        if self.__event_by_llm is None:
-            self.logger.warning(f"LLM returns None, meaning function{self.__function_to_test} can't be tested!")
+            if self.__event_by_llm is None:
+                self.logger.info(f"LLM returns None, meaning function{self.__function_to_test} either is finished testing or can't be tested")
+        else:
+            self.__event_by_llm = None
+            self.logger.warning(f"TEST FUNCTION for over 5 steps, quit!")
 
     def __prepare_back_to_explore(self):
         self.logger.info("Get ready to switch to EXPLORE mode")
@@ -373,6 +401,24 @@ class UtgBasedInputPolicy(InputPolicy):
         self.__cv_monitor.clear()
         # reset time
         self.__next_stage_time = time.time() + self.__GUIDANCE_INTERVAL
+        # reset executed steps
+        self.__executed_steps = 0
+        self.__llm_agent.clear_executed_events()
+        # consider the function is tested whether succeed or not
+        self.__llm_agent.add_tested_function()
+        # reanalyze clusters
+        self.__additional_cluster_analysis()
+
+    def __additional_cluster_analysis(self):
+        # decide clusters to analysis
+        count = 0
+        for cluster in self.utg.clusters:
+            if cluster.need_reanalysed():
+                count += 1
+                # push to low priority queue
+                self.__llm_agent.push_to_queue(QuestionPayload(mode=QuestionMode.REANALYSIS, cluster=cluster))
+
+        self.logger.debug(f"Total {count} cluster to reanalyse")
 
     def __resolve_new_action(self) -> InputEvent:
         if self.__current_mode == Mode.NAVIGATE:
@@ -383,12 +429,12 @@ class UtgBasedInputPolicy(InputPolicy):
                 sys.exit(-1)
 
         if self.__current_mode == Mode.TEST_FUNCTION:
-            self.__prepare_back_to_explore()
             if self.__event_by_llm:
-                self.logger.info("TEST_FUNCTION will be over after executing event by llm")
+                self.logger.info("About to execute event chosen by llm")
                 return self.__event_by_llm
             else:
-                self.logger.warning("event by llm is None, back to EXPLORE mode")
+                self.__prepare_back_to_explore()
+                self.logger.info("event by llm is None, back to EXPLORE mode")
 
         if self.__current_mode == Mode.EXPLORE:
             event = None
