@@ -1,0 +1,8 @@
+{
+    "AppName": "Twitch",
+    "Description": "Twitch is a live streaming platform primarily focused on video game streaming, esports broadcasts, and creative content. Users can watch and interact with professional gamers, participate in gaming discussions, and stay updated on the latest game trends through Twitch. The app allows users to broadcast their gameplay, build online communities, and support their favorite streamers through subscriptions and donations.",
+    "ApiKey": "",
+    "Window": 100,
+    "TotalMethod": 444254,
+    "Tag": "TWITCH_WCX_LOG"
+}

@@ -147,6 +147,8 @@ Here is the experimental environment we have tested.
 
 ## Usage
 
+### Config
+
 First, you need to prepare a `config.json` file before you test an app. 
 
 ```json
@@ -166,6 +168,8 @@ First, you need to prepare a `config.json` file before you test an app.
 - **Tag**: The log tag specified during the app’s instrumentation, used for real-time code coverage statistics. For apps in the Dataset, this can be found in the table within `ExperimentalDataset`. For other apps, it can be specified before using the AndroLog tool for instrumentation.
 - **ClassFilePath**: The **`.class`** files generated during APK compilation. You can find them in the `app\\build\\intermediates\\javac\\debug\\classes `directory under your app project. You may copy this directory to another location, as long as LLMDroid can access it.
 - **EcFilePath**: The directory where the coverage file is generated during runtime when using Jacoco instrumentation. This must match the location specified when modifying the app's source code. It is recommended to use the path returned by `getExternalFilesDir(null).getPath()`, typically `/storage/emulated/0/Android/data/<package name>/files`.
+- **Model: ** The model used, defaults to `gpt-4o-mini`.
+- **BaseUrl:** The base URL for API calls. This parameter, along with the "Model" parameter, allows you to call non-OpenAI models as long as the third-party service supports the OpenAI API specification.
 
 
 
@@ -187,6 +191,8 @@ pip install openai androguard networkx Pillow
 
 - Make sure the `config.json` file is under the root path of LLMDroid-Droidbot.
 
+- Make sure the `JacocoBridge.jar` file is under the root path of LLMDroid-Droidbot.
+
 - Enter the `LLMDroid-Droidbot` directory and run the following comand:
 
 ```shell
@@ -206,6 +212,7 @@ pip install openai androguard networkx Pillow
 ```
 
 - Make sure the `config.json` file is under the root path of LLMDroid-Humanoid.
+- Make sure the `JacocoBridge.jar` file is under the root path of LLMDroid-Humanoid.
 - Deploy and start the Humanoid agent. (For more details, see [Humanoid](https://github.com/the-themis-benchmarks/Humanoid))
 
 - Enter the `LLMDroid-Humanoid` directory and run the following comand:

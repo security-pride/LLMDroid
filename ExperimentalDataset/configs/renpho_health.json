@@ -1,0 +1,7 @@
+{
+    "AppName": "Renpho Health",
+    "Description": "Renpho Health is an app designed to track various body composition metrics such as BMI, body fat percentage, body water, bone mass, basal metabolism, body age, and muscle mass. It syncs with devices like body fat scales, smart jump ropes, and treadmills. The app offers cloud-based data analysis, generating charts and reports that can be shared easily. Renpho Health supports multiple users, making it suitable for families, and can also sync with third-party apps like Google Fit to provide a comprehensive health tracking experience.",
+    "ApiKey": "",
+    "TotalMethod": 395367,
+    "Tag": "RENPHO_HEALTH_WCX_LOG"
+}

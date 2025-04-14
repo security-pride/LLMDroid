@@ -1,9 +1,10 @@
 {
     "AppName": "NewPipe",
     "Description": "NewPipe is an open-source app designed to provide an enhanced YouTube experience with a focus on privacy and user control. It allows users to watch videos without ads, listen to audio in the background, and download content for offline viewing. The app also supports various advanced features such as picture-in-picture mode, video and audio search, and extensive customization options.",
-    "ApiKey": "sk-6MPUBiwi2DSHmSJa223b4a81206b4b4f8e7cD164Ad4659Bf",
+    "ApiKey": "",
     "TotalMethod": 75480,
     "Tag": "PIPE_SUPER_LOG",
-    "ClassFilePath": "D:\\Android_Projects\\NewPipe-dev\\app\\build\\intermediates\\javac\\debug\\classes",
-    "EcFilePath": "/storage/emulated/0/Android/data/org.schabi.newpipe.debug/files"
+    "ClassFilePath" : "/sdcard/newpipe_classes/classes",
+    "EcFilePath": "/storage/emulated/0/Android/data/org.schabi.newpipe.debug/files",
+    "Model": "gpt-4o-mini"
 }
