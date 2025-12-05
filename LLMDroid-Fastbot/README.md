@@ -88,13 +88,16 @@ sudo apt install build-essential
 
 8. Use vcpkg to install nlohmann_json and curl.
 
+Set `--triplet` to the platform you want to build for, such as `arm64-android`, `x64-android`, or `x86-android`.
+
 ```shell
 cd vcpkg
-./vcpkg install nlohmann-json --triplet arm64-android
-./vcpkg install curl --triplet arm64-android
+./vcpkg install nlohmann-json --triplet <target_platform>
+./vcpkg install curl --triplet <target_platform>
 ```
 
-After installation, you should find `nlohmann_jsonConfig.cmake` in the directory `vcpkg/installed/arm64-android/share/nlohmann_json`.
+After installation, `nlohmann_jsonConfig.cmake` will be available at
+`vcpkg/installed/<target_platform>/share/nlohmann_json`.
 
 9. Set the relevant environment variables (recommended to add to `~/.bashrc`).
 
@@ -108,12 +111,97 @@ export PATH="$ANDROID_HOME/platform-tools/:$PATH"
 
 ## Build
 
+### x86_64 Build
+
+The scripts in this repo are written for `arm64-v8a` by default.
+If you want to build for `x86_64` (for example, for Android emulators), update the files below before building.
+
+> [!NOTE]
+> The original authors assume `vcpkg` is installed in the user’s `home` directory, but yours might not be.
+> In the steps below, `VCPKG_ROOT` means your actual `vcpkg` install path.
+
+1. [native/CMakeLists.txt](native/CMakeLists.txt)
+
+Change the target platform in all paths from `arm64-android` to `x64-android`.
+
+```diff
+@@ -3,7 +3,7 @@
+ cmake_minimum_required(VERSION 3.10)
+ project(fastbot_native)
+ 
+-set(nlohmann_json_DIR "${HOME}/vcpkg/installed/arm64-android/share/nlohmann_json")
++set(nlohmann_json_DIR "${VCPKG_ROOT}/installed/x64-android/share/nlohmann_json")
+ # $ENV{HOME}/vcpkg/installed/arm64-android/share/nlohmann_json
+ # $ENV{HOME}/vcpkg/buildtrees/nlohmann-json/x64-linux-rel
+ #set(CURL_DIR "$ENV{HOME}/vcpkg/buildtrees/curl/arm64-android-rel/generated")
+@@ -21,19 +21,19 @@ find_package(nlohmann_json CONFIG REQUIRED)
+ 
+ add_library(lib_curl STATIC IMPORTED)
+ set_target_properties(lib_curl PROPERTIES IMPORTED_LOCATION
+-        ${CMAKE_CURRENT_SOURCE_DIR}/curl/lib/arm64-v8a/libcurl.a)
++        ${VCPKG_ROOT}/installed/x64-android/lib/libcurl.a)
+ 
+ add_library(lib_crypto STATIC IMPORTED)
+ set_target_properties(lib_crypto PROPERTIES IMPORTED_LOCATION
+-  ${CMAKE_CURRENT_SOURCE_DIR}/curl/lib/arm64-v8a/libcrypto.a)
++  ${VCPKG_ROOT}/installed/x64-android/lib/libcrypto.a)
+ 
+ add_library(lib_ssl STATIC IMPORTED)
+ set_target_properties(lib_ssl PROPERTIES IMPORTED_LOCATION
+-  ${CMAKE_CURRENT_SOURCE_DIR}/curl/lib/arm64-v8a/libssl.a)
++  ${VCPKG_ROOT}/installed/x64-android/lib/libssl.a)
+ 
+ add_library(lib_z STATIC IMPORTED)
+ set_target_properties(lib_z PROPERTIES IMPORTED_LOCATION
+-  ${CMAKE_CURRENT_SOURCE_DIR}/curl/lib/arm64-v8a/libz.a)
++  ${VCPKG_ROOT}/installed/x64-android/lib/libz.a)
+ 
+ set( LIBPATH mac)
+ message(STATUS  ${CMAKE_SYSTEM_NAME})
+```
+2. [monkey/build.gradle](monkey/build.gradle)
+
+Switch ABI to `x86_64` and raise the minimum SDK to 26 (lowest version tested to be compilable).
+
+```diff
+@@ -23,7 +23,7 @@ android {
+     compileSdkVersion 32
+ 
+     defaultConfig {
+-        minSdkVersion 22
++        minSdkVersion 26
+         targetSdkVersion 32
+         versionCode 1
+         versionName "1.0"
+@@ -31,7 +31,7 @@ android {
+         multiDexEnabled true
+         ndk {
+             //abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+-            abiFilters 'arm64-v8a'
++            abiFilters 'x86_64'
+         }
+     }
+```
+
+3. [build_native.sh](build_native.sh)
+
+Change target ABI and specify the Android API level.
+
+```diff
+-cmake -DCMAKE_TOOLCHAIN_FILE=$NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DCMAKE_BUILD_TYPE=Release
++cmake -DCMAKE_TOOLCHAIN_FILE=$NDK_ROOT/build/cmake/android.toolchain.cmake -DANDROID_ABI=x86_64  -DCMAKE_BUILD_TYPE=Release -DANDROID_PLATFORM=android-26
+```
+
 ### Make jar
 
 ```shell
 # First, build the jar
 cd LLMDroid-Fastbot
+
+# non-parallel mode
 ./gradlew clean makeJar
+
+# parallel mode
 ./gradlew clean makeJar --parallel
 
 # Use the dx tool to convert the jar into a format compatible with Android
@@ -131,6 +219,9 @@ Check the `native/CMakeLists.txt` file.
 You may need to modify the path above to ensure it points to the actual installation location of nlohmann_json.
 
 Use the following command to compile the .so file.
+
+> [!NOTE]
+> If you're building the library for x86_64, you can likely skip this step as long as the previous Gradle command already produced the library file.
 
 ```shell
 sh build_native.sh
