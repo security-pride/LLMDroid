@@ -45,6 +45,7 @@ class TopCluster(TypedDict):
 class LLMAgent:
 
     MODEL_STR = 'gpt-4o'
+    BASE_URL = 'https://api.openai.com/v1'
 
     def __init__(self, app: 'App', utg: 'UTG'):
         self.logger = get_logger()
@@ -62,6 +63,10 @@ class LLMAgent:
             self.__app_name = config['AppName']
             self.__app_desc = config['Description']
             self.__api_key = config['ApiKey']
+            if 'Model' in config:
+                LLMAgent.MODEL_STR = config['Model']
+            if 'BaseUrl' in config:
+                LLMAgent.BASE_URL = config['BaseUrl']
             self.__start_prompt = f"I'm now testing an app called {self.__app_name} on Android.\n{self.__app_desc}\n"
         # init client
         self.__client = OpenAI(api_key=self.__api_key)
@@ -87,7 +92,7 @@ class LLMAgent:
 
     def __init_client(self):
         # self.__client.api_key = ''
-        self.__client.base_url = 'https://oneapi.xty.app/v1'
+        self.__client.base_url = LLMAgent.BASE_URL
         self.__client.timeout = 30000
 
 
