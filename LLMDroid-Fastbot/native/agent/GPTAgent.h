@@ -80,7 +80,7 @@ namespace fastbotx {
         std::ofstream _file;
         std::ofstream _interactionFile;
 
-        std::string _model_str = "gpt-4o-mini";
+        std::string _model_str = "gpt-4o";
 
         std::string _startPrompt;
         std::string _apiKey;
